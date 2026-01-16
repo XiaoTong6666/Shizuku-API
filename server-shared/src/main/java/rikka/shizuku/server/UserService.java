@@ -63,8 +63,14 @@ public class UserService {
             DdmHandleAppName.setAppName(name != null ? name : pkg + ":user_service", userId);
 
             //noinspection InstantiationOfUtilityClass
-            UserHandle userHandle = Refine.unsafeCast(
-                    UserHandleHidden.of(userId));
+            UserHandle userHandle;
+            if (android.os.Build.VERSION.SDK_INT >= 24) {
+                userHandle = Refine.unsafeCast(UserHandleHidden.of(userId));
+            } else {
+                Constructor<UserHandle> constructor = UserHandle.class.getDeclaredConstructor(int.class);
+                constructor.setAccessible(true);
+                userHandle = constructor.newInstance(userId);
+            }
             Context context = Refine.<ContextHidden>unsafeCast(systemContext).createPackageContextAsUser(pkg, Context.CONTEXT_INCLUDE_CODE | Context.CONTEXT_IGNORE_SECURITY, userHandle);
             Field mPackageInfo = context.getClass().getDeclaredField("mPackageInfo");
             mPackageInfo.setAccessible(true);
