@@ -151,6 +151,17 @@ public abstract class Service<
         }
 
         LOGGER.d("transact: uid=%d, descriptor=%s, code=%d", Binder.getCallingUid(), targetBinder.getInterfaceDescriptor(), targetCode);
+
+        if (targetBinder instanceof Binder) {
+            long id = Binder.clearCallingIdentity();
+            try {
+                targetBinder.transact(targetCode, data, reply, targetFlags);
+            } finally {
+                Binder.restoreCallingIdentity(id);
+            }
+            return;
+        }
+
         Parcel newData = Parcel.obtain();
         try {
             newData.appendFrom(data, data.dataPosition(), data.dataAvail());

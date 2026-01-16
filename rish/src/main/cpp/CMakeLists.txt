@@ -9,7 +9,8 @@ add_compile_options(-Werror=format -fdata-sections -ffunction-sections -fno-exce
 if (NOT CMAKE_BUILD_TYPE STREQUAL "Debug")
     message("Builing Release...")
 
-    add_compile_options(-Os -flto -fvisibility=hidden -fvisibility-inlines-hidden)
+    add_definitions(-DNDEBUG)
+    add_compile_options(-O3 -flto -fvisibility=hidden -fvisibility-inlines-hidden)
     add_link_options(-flto -Wl,--exclude-libs,ALL -Wl,--gc-sections -Wl,--strip-all)
 else ()
     message("Builing Debug...")
