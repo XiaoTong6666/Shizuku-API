@@ -4,46 +4,46 @@ plugins {
 }
 
 android {
-    namespace 'rikka.shizuku.demo'
+    namespace = 'rikka.shizuku.demo'
     defaultConfig {
-        applicationId "rikka.shizuku.demo"
-        versionCode 1
-        versionName api_version_name
+        applicationId = "rikka.shizuku.demo"
+        versionCode = 1
+        versionName = api_version_name
         externalNativeBuild {
             cmake {
-                abiFilters "armeabi-v7a", 'arm64-v8a', 'x86', 'x86_64'
-                cppFlags "-std=c++17"
-                arguments '-DANDROID_TOOLCHAIN=clang', '-DANDROID_STL=c++_static'
+                abiFilters("armeabi-v7a", 'arm64-v8a', 'x86', 'x86_64')
+                cppFlags("-std=c++17")
+                arguments('-DANDROID_TOOLCHAIN=clang', '-DANDROID_STL=c++_static')
             }
         }
     }
     externalNativeBuild {
         cmake {
-            path "src/main/cpp/CMakeLists.txt"
+            path = "src/main/cpp/CMakeLists.txt"
         }
     }
     buildFeatures {
         buildConfig = true
         viewBinding = true
-        aidl true
+        aidl = true
     }
     signingConfigs {
         sign
     }
     buildTypes {
         release {
-            minifyEnabled true
-            shrinkResources true
-            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+            minifyEnabled = true
+            shrinkResources = true
+            proguardFiles(getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro')
         }
     }
     compileOptions {
-        sourceCompatibility JavaVersion.VERSION_21
-        targetCompatibility JavaVersion.VERSION_21
+        sourceCompatibility = JavaVersion.VERSION_21
+        targetCompatibility = JavaVersion.VERSION_21
     }
     packaging {
         jniLibs {
-            useLegacyPackaging true
+            useLegacyPackaging = true
         }
     }
 }
