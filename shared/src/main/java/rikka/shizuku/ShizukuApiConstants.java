@@ -41,6 +41,7 @@ public class ShizukuApiConstants {
     // request permission
     public static final String REQUEST_PERMISSION_REPLY_ALLOWED = "shizuku:request-permission-reply-allowed";
     public static final String REQUEST_PERMISSION_REPLY_IS_ONETIME = "shizuku:request-permission-reply-is-onetime";
+    public static final String REQUEST_PERMISSION_REPLY_IS_SHELL = "shizuku:request-permission-reply-is-shell";
 
     // attach application
     public static final String ATTACH_APPLICATION_PACKAGE_NAME = "shizuku:attach-package-name";

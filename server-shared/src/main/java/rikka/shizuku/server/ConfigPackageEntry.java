@@ -11,5 +11,9 @@ public abstract class ConfigPackageEntry {
 
     public abstract boolean isAllowed();
 
+    public boolean isAllowedShell() {
+        return false;
+    }
+
     public abstract boolean isDenied();
 }

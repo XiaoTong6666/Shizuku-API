@@ -25,6 +25,10 @@ public class ClientManager<ConfigMgr extends ConfigManager> {
         return configManager;
     }
 
+    public List<ClientRecord> getClients() {
+        return clientRecords;
+    }
+
     public List<ClientRecord> findClients(int uid) {
         synchronized (this) {
             List<ClientRecord> res = new ArrayList<>();
@@ -66,7 +70,7 @@ public class ClientManager<ConfigMgr extends ConfigManager> {
         ClientRecord clientRecord = new ClientRecord(uid, pid, client, packageName, apiVersion);
 
         ConfigPackageEntry entry = configManager.find(uid);
-        if (entry != null && entry.isAllowed()) {
+        if (entry != null && (entry.isAllowed() || entry.isAllowedShell())) {
             clientRecord.allowed = true;
         }
 
