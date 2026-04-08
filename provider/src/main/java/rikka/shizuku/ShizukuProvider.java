@@ -12,6 +12,7 @@ import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.IBinder;
+import android.os.Parcelable;
 import android.util.Log;
 
 import androidx.annotation.NonNull;
@@ -122,7 +123,7 @@ public class ShizukuProvider extends ContentProvider {
         BroadcastReceiver receiver = new BroadcastReceiver() {
             @Override
             public void onReceive(Context context, Intent intent) {
-                BinderContainer container = intent.getParcelableExtra(EXTRA_BINDER);
+                BinderContainer container = getBinderContainerExtra(intent);
                 if (container != null && container.binder != null) {
                     Log.i(TAG, "binder received from broadcast");
                     Shizuku.onBinderReceived(container.binder, context.getPackageName());
@@ -147,7 +148,7 @@ public class ShizukuProvider extends ContentProvider {
         if (reply != null) {
             reply.setClassLoader(BinderContainer.class.getClassLoader());
 
-            BinderContainer container = reply.getParcelable(EXTRA_BINDER);
+            BinderContainer container = getBinderContainer(reply);
             if (container != null && container.binder != null) {
                 Log.i(TAG, "Binder received from other process");
                 Shizuku.onBinderReceived(container.binder, context.getPackageName());
@@ -213,7 +214,7 @@ public class ShizukuProvider extends ContentProvider {
             return;
         }
 
-        BinderContainer container = extras.getParcelable(EXTRA_BINDER);
+        BinderContainer container = getBinderContainer(extras);
         if (container != null && container.binder != null) {
             Log.d(TAG, "binder received");
 
@@ -238,6 +239,22 @@ public class ShizukuProvider extends ContentProvider {
 
         reply.putParcelable(EXTRA_BINDER, new BinderContainer(binder));
         return true;
+    }
+
+    @SuppressWarnings("deprecation")
+    private static BinderContainer getBinderContainer(@NonNull Bundle bundle) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            return bundle.getParcelable(EXTRA_BINDER, BinderContainer.class);
+        }
+        return bundle.getParcelable(EXTRA_BINDER);
+    }
+
+    @SuppressWarnings("deprecation")
+    private static BinderContainer getBinderContainerExtra(@NonNull Intent intent) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            return intent.getParcelableExtra(EXTRA_BINDER, BinderContainer.class);
+        }
+        return intent.getParcelableExtra(EXTRA_BINDER);
     }
 
     // no other provider methods

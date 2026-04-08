@@ -11,11 +11,13 @@ import static rikka.shizuku.ShizukuApiConstants.USER_SERVICE_ARG_USE_32_BIT_APP_
 import static rikka.shizuku.ShizukuApiConstants.USER_SERVICE_ARG_VERSION_CODE;
 
 import android.annotation.SuppressLint;
+import android.os.Build;
 import android.content.ComponentName;
 import android.content.pm.PackageInfo;
 import android.os.Binder;
 import android.os.Bundle;
 import android.os.IBinder;
+import android.os.Parcelable;
 import android.text.format.DateUtils;
 import android.util.ArrayMap;
 
@@ -60,7 +62,7 @@ public abstract class UserServiceManager {
     }
 
     public int removeUserService(IShizukuServiceConnection conn, Bundle options) {
-        ComponentName componentName = Objects.requireNonNull(options.getParcelable(USER_SERVICE_ARG_COMPONENT), "component is null");
+        ComponentName componentName = Objects.requireNonNull(getParcelable(options, USER_SERVICE_ARG_COMPONENT, ComponentName.class), "component is null");
 
         int uid = Binder.getCallingUid();
         int appId = UserHandleCompat.getAppId(uid);
@@ -106,7 +108,7 @@ public abstract class UserServiceManager {
         int appId = UserHandleCompat.getAppId(uid);
         int userId = UserHandleCompat.getUserId(uid);
 
-        ComponentName componentName = Objects.requireNonNull(options.getParcelable(USER_SERVICE_ARG_COMPONENT), "component is null");
+        ComponentName componentName = Objects.requireNonNull(getParcelable(options, USER_SERVICE_ARG_COMPONENT, ComponentName.class), "component is null");
         String packageName = Objects.requireNonNull(componentName.getPackageName(), "package is null");
         PackageInfo packageInfo = ensureCallingPackageForUserService(packageName, appId, userId);
 
@@ -164,6 +166,14 @@ public abstract class UserServiceManager {
 
     private UserServiceRecord getUserServiceRecordLocked(String key) {
         return userServiceRecords.get(key);
+    }
+
+    @SuppressWarnings("deprecation")
+    private static <T extends Parcelable> T getParcelable(Bundle bundle, String key, Class<T> clazz) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            return bundle.getParcelable(key, clazz);
+        }
+        return bundle.getParcelable(key);
     }
 
     private UserServiceRecord createUserServiceRecordIfNeededLocked(
