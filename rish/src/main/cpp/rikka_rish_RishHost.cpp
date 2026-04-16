@@ -55,6 +55,12 @@ static void initVectorFromBlock(const char **vector, const char *block, int coun
     vector[count] = nullptr;
 }
 
+static void freeStringVector(const char** vector) {
+    if (vector == nullptr)
+        return;
+    free((void*)vector);
+}
+
 static jintArray RishHost_startHost(
         JNIEnv *env, jclass clazz,
         jbyteArray argBlock, jint argc,
@@ -116,6 +122,8 @@ static jintArray RishHost_startHost(
 
     auto pid = fork();
     if (pid == -1) {
+        freeStringVector(argv);
+        free((void*)envv);
         releaseBytes(env, argBlock, pargBlock);
         releaseBytes(env, envBlock, penvBlock);
         releaseBytes(env, dirBlock, pdir);
@@ -125,6 +133,8 @@ static jintArray RishHost_startHost(
     }
 
     if (pid > 0) {
+        freeStringVector(argv);
+        free((void*)envv);
         releaseBytes(env, argBlock, pargBlock);
         releaseBytes(env, envBlock, penvBlock);
         releaseBytes(env, dirBlock, pdir);
