@@ -453,7 +453,7 @@ public class Shizuku {
      */
     public static boolean pingBinder() {
         IBinder b = binder;
-        return binder != null && binder.pingBinder();
+        return b != null && b.pingBinder();
     }
 
     private static RuntimeException rethrowAsRuntimeException(RemoteException e) {
