@@ -1,5 +1,5 @@
 plugins {
-    id('com.android.library')
+    alias(libs.plugins.android.library)
 }
 
 android {
@@ -22,7 +22,7 @@ dependencies {
     api project(':aidl')
     api project(':shared')
 
-    implementation libs.androidx.annotation
+    api libs.androidx.annotation
 }
 
 ext {
