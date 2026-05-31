@@ -1,5 +1,3 @@
 package android.content;
 
-public class Intent {
-
-}
+public class Intent {}

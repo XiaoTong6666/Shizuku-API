@@ -1,16 +1,13 @@
 package rikka.rish;
 
 import android.util.Log;
-
 import java.util.Arrays;
 
 public class Rish {
 
     private static final String TAG = "RISH";
 
-    public void requestPermission(Runnable onGrantedRunnable) {
-
-    }
+    public void requestPermission(Runnable onGrantedRunnable) {}
 
     private void startShell(String[] args, boolean permissionGranted) {
         if (!permissionGranted) {
@@ -31,7 +28,7 @@ public class Rish {
             System.err.println(e.getMessage());
             System.err.flush();
             System.exit(1);
-            //abort(e.getMessage());
+            // abort(e.getMessage());
         }
     }
 

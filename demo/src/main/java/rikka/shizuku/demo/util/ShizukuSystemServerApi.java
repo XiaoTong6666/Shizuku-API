@@ -7,9 +7,7 @@ import android.content.pm.UserInfo;
 import android.os.Build;
 import android.os.IUserManager;
 import android.os.RemoteException;
-
 import java.util.List;
-
 import rikka.shizuku.ShizukuBinderWrapper;
 import rikka.shizuku.SystemServiceHelper;
 
@@ -18,14 +16,16 @@ public class ShizukuSystemServerApi {
     private static final Singleton<IPackageManager> PACKAGE_MANAGER = new Singleton<IPackageManager>() {
         @Override
         protected IPackageManager create() {
-            return IPackageManager.Stub.asInterface(new ShizukuBinderWrapper(SystemServiceHelper.getSystemService("package")));
+            return IPackageManager.Stub.asInterface(
+                    new ShizukuBinderWrapper(SystemServiceHelper.getSystemService("package")));
         }
     };
 
     private static final Singleton<IUserManager> USER_MANAGER = new Singleton<IUserManager>() {
         @Override
         protected IUserManager create() {
-            return IUserManager.Stub.asInterface(new ShizukuBinderWrapper(SystemServiceHelper.getSystemService(Context.USER_SERVICE)));
+            return IUserManager.Stub.asInterface(
+                    new ShizukuBinderWrapper(SystemServiceHelper.getSystemService(Context.USER_SERVICE)));
         }
     };
 
@@ -34,7 +34,8 @@ public class ShizukuSystemServerApi {
         return IPackageInstaller.Stub.asInterface(new ShizukuBinderWrapper(packageInstaller.asBinder()));
     }
 
-    public static List<UserInfo> UserManager_getUsers(boolean excludePartial, boolean excludeDying, boolean excludePreCreated) throws RemoteException {
+    public static List<UserInfo> UserManager_getUsers(
+            boolean excludePartial, boolean excludeDying, boolean excludePreCreated) throws RemoteException {
         if (Build.VERSION.SDK_INT >= 30) {
             return USER_MANAGER.get().getUsers(excludePartial, excludeDying, excludePreCreated);
         } else {

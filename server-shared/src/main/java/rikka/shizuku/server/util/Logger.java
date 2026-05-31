@@ -1,7 +1,6 @@
 package rikka.shizuku.server.util;
 
 import android.util.Log;
-
 import java.io.IOException;
 import java.util.Locale;
 import java.util.logging.FileHandler;

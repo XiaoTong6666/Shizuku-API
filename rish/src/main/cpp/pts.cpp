@@ -9,7 +9,7 @@
 #include <functional>
 #include "logging.h"
 
-int make_tty_raw(int fd, termios &old_termios) {
+int make_tty_raw(int fd, termios& old_termios) {
     struct termios termios{};
 
     if (tcgetattr(fd, &termios) < 0) {
@@ -28,7 +28,7 @@ int make_tty_raw(int fd, termios &old_termios) {
     return 0;
 }
 
-int restore_fd(int fd, const termios &old_termios) {
+int restore_fd(int fd, const termios& old_termios) {
     if (tcsetattr(fd, TCSANOW, &old_termios) < 0) {
         PLOGE("tcsetattr");
         return -1;
@@ -36,7 +36,7 @@ int restore_fd(int fd, const termios &old_termios) {
     return 0;
 }
 
-static int write_full(int fd, const void *buf, size_t count) {
+static int write_full(int fd, const void* buf, size_t count) {
     while (count > 0) {
         ssize_t size = write(fd, buf, count < SSIZE_MAX ? count : SSIZE_MAX);
         if (size <= 0) {
@@ -45,7 +45,7 @@ static int write_full(int fd, const void *buf, size_t count) {
             else
                 return -1;
         }
-        buf = (const void *) ((uintptr_t) buf + size);
+        buf = (const void*)((uintptr_t)buf + size);
         count -= size;
     }
     return 0;
@@ -59,32 +59,37 @@ struct transfer_thread_data {
     std::function<void()> function;
 };
 
-void transfer(int in, int out, bool close_in, bool close_out, const std::function<void()> &function) {
+void transfer(int in, int out, bool close_in, bool close_out,
+              const std::function<void()>& function) {
     char buf[8192];
     int len;
     while ((len = TEMP_FAILURE_RETRY(read(in, buf, 8192))) > 0) {
         if (write_full(out, buf, len) == -1) {
-            //PLOGE("write");
+            // PLOGE("write");
             break;
         }
     }
-    //PLOGE("read");
+    // PLOGE("read");
 
-    if (close_in) close(in);
-    if (close_out) close(out);
-    if (function) function();
+    if (close_in)
+        close(in);
+    if (close_out)
+        close(out);
+    if (function)
+        function();
 }
 
-static void *transfer_thread(void *_data) {
-    auto data = (transfer_thread_data *) _data;
+static void* transfer_thread(void* _data) {
+    auto data = (transfer_thread_data*)_data;
     transfer(data->in, data->out, data->close_in, data->close_out, data->function);
     delete data;
     return nullptr;
 }
 
-void transfer_async(int in, int out, const std::function<void()> &function, bool close_in, bool close_out) {
+void transfer_async(int in, int out, const std::function<void()>& function, bool close_in,
+                    bool close_out) {
     pthread_t pthread;
-    auto *data = new transfer_thread_data{in, out, close_in, close_out, function};
+    auto* data = new transfer_thread_data{in, out, close_in, close_out, function};
     pthread_create(&pthread, nullptr, transfer_thread, data);
 }
 

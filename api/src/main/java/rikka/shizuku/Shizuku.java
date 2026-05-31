@@ -21,15 +21,12 @@ import android.os.Looper;
 import android.os.Parcel;
 import android.os.RemoteException;
 import android.util.Log;
-
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.annotation.RestrictTo;
-
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
-
 import moe.shizuku.server.IShizukuApplication;
 import moe.shizuku.server.IShizukuService;
 
@@ -56,7 +53,8 @@ public class Shizuku {
             serverPatchVersion = data.getInt(BIND_APPLICATION_SERVER_PATCH_VERSION, -1);
             serverContext = data.getString(BIND_APPLICATION_SERVER_SECONTEXT);
             permissionGranted = data.getBoolean(BIND_APPLICATION_PERMISSION_GRANTED, false);
-            shouldShowRequestPermissionRationale = data.getBoolean(BIND_APPLICATION_SHOULD_SHOW_REQUEST_PERMISSION_RATIONALE, false);
+            shouldShowRequestPermissionRationale =
+                    data.getBoolean(BIND_APPLICATION_SHOULD_SHOW_REQUEST_PERMISSION_RATIONALE, false);
 
             scheduleBinderReceivedListeners();
         }
@@ -64,11 +62,13 @@ public class Shizuku {
         @Override
         public void dispatchRequestPermissionResult(int requestCode, Bundle data) {
             boolean allowed = data.getBoolean(REQUEST_PERMISSION_REPLY_ALLOWED, false);
-            scheduleRequestPermissionResultListener(requestCode, allowed ? PackageManager.PERMISSION_GRANTED : PackageManager.PERMISSION_DENIED);
+            scheduleRequestPermissionResultListener(
+                    requestCode, allowed ? PackageManager.PERMISSION_GRANTED : PackageManager.PERMISSION_DENIED);
         }
 
         @Override
-        public void showPermissionConfirmation(int requestUid, int requestPid, String requestPackageName, int requestCode) {
+        public void showPermissionConfirmation(
+                int requestUid, int requestPid, String requestPackageName, int requestCode) {
             // non-app
         }
     };
@@ -208,7 +208,8 @@ public class Shizuku {
 
     private static final List<ListenerHolder<OnBinderReceivedListener>> RECEIVED_LISTENERS = new ArrayList<>();
     private static final List<ListenerHolder<OnBinderDeadListener>> DEAD_LISTENERS = new ArrayList<>();
-    private static final List<ListenerHolder<OnRequestPermissionResultListener>> PERMISSION_LISTENERS = new ArrayList<>();
+    private static final List<ListenerHolder<OnRequestPermissionResultListener>> PERMISSION_LISTENERS =
+            new ArrayList<>();
     private static final Handler MAIN_HANDLER = new Handler(Looper.getMainLooper());
 
     /**
@@ -245,7 +246,8 @@ public class Shizuku {
      * @param listener OnBinderReceivedListener
      * @param handler  Where the listener would be called. If null, the listener will be called in main thread.
      */
-    public static void addBinderReceivedListener(@NonNull OnBinderReceivedListener listener, @Nullable Handler handler) {
+    public static void addBinderReceivedListener(
+            @NonNull OnBinderReceivedListener listener, @Nullable Handler handler) {
         addBinderReceivedListener(Objects.requireNonNull(listener), false, handler);
     }
 
@@ -266,11 +268,13 @@ public class Shizuku {
      * @param listener OnBinderReceivedListener
      * @param handler  Where the listener would be called. If null, the listener will be called in main thread.
      */
-    public static void addBinderReceivedListenerSticky(@NonNull OnBinderReceivedListener listener, @Nullable Handler handler) {
+    public static void addBinderReceivedListenerSticky(
+            @NonNull OnBinderReceivedListener listener, @Nullable Handler handler) {
         addBinderReceivedListener(Objects.requireNonNull(listener), true, handler);
     }
 
-    private static void addBinderReceivedListener(@NonNull OnBinderReceivedListener listener, boolean sticky, @Nullable Handler handler) {
+    private static void addBinderReceivedListener(
+            @NonNull OnBinderReceivedListener listener, boolean sticky, @Nullable Handler handler) {
         if (sticky && binderReady) {
             if (handler != null) {
                 handler.post(listener::onBinderReceived);
@@ -365,7 +369,6 @@ public class Shizuku {
                         MAIN_HANDLER.post(holder.listener::onBinderDead);
                     }
                 }
-
             }
         }
     }
@@ -390,7 +393,8 @@ public class Shizuku {
      * @param listener OnBinderReceivedListener
      * @param handler  Where the listener would be called. If null, the listener will be called in main thread.
      */
-    public static void addRequestPermissionResultListener(@NonNull OnRequestPermissionResultListener listener, @Nullable Handler handler) {
+    public static void addRequestPermissionResultListener(
+            @NonNull OnRequestPermissionResultListener listener, @Nullable Handler handler) {
         synchronized (RECEIVED_LISTENERS) {
             PERMISSION_LISTENERS.add(new ListenerHolder<>(listener, handler));
         }
@@ -424,8 +428,7 @@ public class Shizuku {
         }
     }
 
-    @NonNull
-    protected static IShizukuService requireService() {
+    @NonNull protected static IShizukuService requireService() {
         if (service == null) {
             throw new IllegalStateException("binder haven't been received");
         }
@@ -437,8 +440,7 @@ public class Shizuku {
      * <p>
      * Normal apps should not use this method.
      */
-    @Nullable
-    public static IBinder getBinder() {
+    @Nullable public static IBinder getBinder() {
         return binder;
     }
 
@@ -490,7 +492,8 @@ public class Shizuku {
      * <p>This method is planned to be removed from Shizuku API 14.
      */
     @Deprecated
-    private static ShizukuRemoteProcess newProcess(@NonNull String[] cmd, @Nullable String[] env, @Nullable String dir) {
+    private static ShizukuRemoteProcess newProcess(
+            @NonNull String[] cmd, @Nullable String[] env, @Nullable String dir) {
         try {
             return new ShizukuRemoteProcess(requireService().newProcess(cmd, env, dir));
         } catch (RemoteException e) {
@@ -672,7 +675,8 @@ public class Shizuku {
             options.putInt(ShizukuApiConstants.USER_SERVICE_ARG_VERSION_CODE, versionCode);
             options.putBoolean(ShizukuApiConstants.USER_SERVICE_ARG_DAEMON, daemon);
             options.putBoolean(ShizukuApiConstants.USER_SERVICE_ARG_USE_32_BIT_APP_PROCESS, use32BitAppProcess);
-            options.putString(ShizukuApiConstants.USER_SERVICE_ARG_PROCESS_NAME,
+            options.putString(
+                    ShizukuApiConstants.USER_SERVICE_ARG_PROCESS_NAME,
                     Objects.requireNonNull(processName, "process name suffix must not be null"));
             if (tag != null) {
                 options.putString(ShizukuApiConstants.USER_SERVICE_ARG_TAG, tag);
@@ -782,7 +786,8 @@ public class Shizuku {
      * @param remove Remove (kill) the remote user service.
      * @see Shizuku#bindUserService(UserServiceArgs, ServiceConnection)
      */
-    public static void unbindUserService(@NonNull UserServiceArgs args, @Nullable ServiceConnection conn, boolean remove) {
+    public static void unbindUserService(
+            @NonNull UserServiceArgs args, @Nullable ServiceConnection conn, boolean remove) {
         if (remove) {
             try {
                 requireService().removeUserService(null /* (unused) */, args.forRemove(true));
@@ -911,7 +916,8 @@ public class Shizuku {
     }
 
     @RestrictTo(LIBRARY_GROUP_PREFIX)
-    public static void dispatchPermissionConfirmationResult(int requestUid, int requestPid, int requestCode, @NonNull Bundle data) {
+    public static void dispatchPermissionConfirmationResult(
+            int requestUid, int requestPid, int requestCode, @NonNull Bundle data) {
         try {
             requireService().dispatchPermissionConfirmationResult(requestUid, requestPid, requestCode, data);
         } catch (RemoteException e) {

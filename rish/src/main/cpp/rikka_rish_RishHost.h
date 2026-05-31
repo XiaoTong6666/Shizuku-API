@@ -3,6 +3,6 @@
 
 #include <jni.h>
 
-int rikka_rish_RishHost_registerNatives(JNIEnv *env);
+int rikka_rish_RishHost_registerNatives(JNIEnv* env);
 
-#endif //RIKKA_RISH_RISHHost_H
+#endif  // RIKKA_RISH_RISHHost_H

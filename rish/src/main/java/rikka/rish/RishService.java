@@ -6,10 +6,8 @@ import android.os.Parcel;
 import android.os.ParcelFileDescriptor;
 import android.system.Os;
 import android.util.Log;
-
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
-
 import java.util.HashMap;
 import java.util.Map;
 
@@ -22,9 +20,13 @@ public abstract class RishService {
     private static final boolean IS_ROOT = Os.getuid() == 0;
 
     private void createHost(
-            String[] args, String[] env, String dir,
+            String[] args,
+            String[] env,
+            String dir,
             byte tty,
-            ParcelFileDescriptor stdin, ParcelFileDescriptor stdout, ParcelFileDescriptor stderr) {
+            ParcelFileDescriptor stdin,
+            ParcelFileDescriptor stdout,
+            ParcelFileDescriptor stderr) {
 
         int callingPid = Binder.getCallingPid();
 
@@ -135,5 +137,4 @@ public abstract class RishService {
         }
         return false;
     }
-
 }

@@ -2,7 +2,6 @@ package rikka.sui;
 
 import android.os.IBinder;
 import android.os.Parcel;
-
 import rikka.shizuku.Shizuku;
 import rikka.shizuku.SystemServiceHelper;
 import rikka.sui.util.BridgeConstants;

@@ -2,7 +2,6 @@ package android.os;
 
 import android.annotation.NonNull;
 import android.annotation.Nullable;
-
 import java.io.FileDescriptor;
 
 public class Binder implements IBinder {
@@ -51,8 +50,8 @@ public class Binder implements IBinder {
         throw new RuntimeException("STUB");
     }
 
-    protected boolean onTransact(int code, @NonNull Parcel data, @Nullable Parcel reply,
-                                 int flags) throws RemoteException {
+    protected boolean onTransact(int code, @NonNull Parcel data, @Nullable Parcel reply, int flags)
+            throws RemoteException {
         throw new RuntimeException("STUB");
     }
 }

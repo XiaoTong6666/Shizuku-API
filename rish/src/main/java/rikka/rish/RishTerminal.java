@@ -5,7 +5,6 @@ import android.os.RemoteException;
 import android.system.ErrnoException;
 import android.system.Os;
 import android.util.Log;
-
 import java.io.File;
 import java.io.FileDescriptor;
 import java.util.ArrayList;
@@ -72,7 +71,8 @@ public class RishTerminal {
             data.writeStringArray(argv);
             data.writeStringArray(env);
             data.writeString(dir);
-            RishConfig.getBinder().transact(RishConfig.getTransactionCode(RishConfig.TRANSACTION_createHost), data, reply, 0);
+            RishConfig.getBinder()
+                    .transact(RishConfig.getTransactionCode(RishConfig.TRANSACTION_createHost), data, reply, 0);
             reply.readException();
         } finally {
             data.recycle();
@@ -91,17 +91,18 @@ public class RishTerminal {
 
         if (ttyFd != -1) {
             new Thread(() -> {
-                while (true) {
-                    Log.d(TAG, "waitForWindowSizeChange");
+                        while (true) {
+                            Log.d(TAG, "waitForWindowSizeChange");
 
-                    try {
-                        long size = waitForWindowSizeChange(ttyFd);
-                        setWindowSize(size);
-                    } catch (Throwable e) {
-                        Log.w(TAG, Log.getStackTraceString(e));
-                    }
-                }
-            }).start();
+                            try {
+                                long size = waitForWindowSizeChange(ttyFd);
+                                setWindowSize(size);
+                            } catch (Throwable e) {
+                                Log.w(TAG, Log.getStackTraceString(e));
+                            }
+                        }
+                    })
+                    .start();
         }
     }
 
@@ -114,7 +115,8 @@ public class RishTerminal {
         try {
             data.writeInterfaceToken(RishConfig.getInterfaceToken());
             data.writeLong(size);
-            RishConfig.getBinder().transact(RishConfig.getTransactionCode(RishConfig.TRANSACTION_setWindowSize), data, null, 0);
+            RishConfig.getBinder()
+                    .transact(RishConfig.getTransactionCode(RishConfig.TRANSACTION_setWindowSize), data, null, 0);
             reply.readException();
         } finally {
             data.recycle();
@@ -130,7 +132,8 @@ public class RishTerminal {
 
         try {
             data.writeInterfaceToken(RishConfig.getInterfaceToken());
-            RishConfig.getBinder().transact(RishConfig.getTransactionCode(RishConfig.TRANSACTION_getExitCode), data, null, 0);
+            RishConfig.getBinder()
+                    .transact(RishConfig.getTransactionCode(RishConfig.TRANSACTION_getExitCode), data, null, 0);
             reply.readException();
             return reply.readInt();
         } finally {

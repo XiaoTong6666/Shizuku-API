@@ -11,14 +11,11 @@ import android.os.UserHandle;
 import android.os.UserHandleHidden;
 import android.util.Log;
 import android.util.Pair;
-
 import androidx.annotation.Nullable;
-
+import dev.rikka.tools.refine.Refine;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
-
-import dev.rikka.tools.refine.Refine;
 
 public class UserService {
 
@@ -28,8 +25,7 @@ public class UserService {
         UserService.TAG = tag;
     }
 
-    @Nullable
-    public static Pair<IBinder, String> create(String[] args) {
+    @Nullable public static Pair<IBinder, String> create(String[] args) {
         String name = null;
         String token = null;
         String pkg = null;
@@ -71,14 +67,17 @@ public class UserService {
                 constructor.setAccessible(true);
                 userHandle = constructor.newInstance(userId);
             }
-            Context context = Refine.<ContextHidden>unsafeCast(systemContext).createPackageContextAsUser(pkg, Context.CONTEXT_INCLUDE_CODE | Context.CONTEXT_IGNORE_SECURITY, userHandle);
+            Context context = Refine.<ContextHidden>unsafeCast(systemContext)
+                    .createPackageContextAsUser(
+                            pkg, Context.CONTEXT_INCLUDE_CODE | Context.CONTEXT_IGNORE_SECURITY, userHandle);
 
             Application application = null;
             try {
                 Field mPackageInfo = context.getClass().getDeclaredField("mPackageInfo");
                 mPackageInfo.setAccessible(true);
                 Object loadedApk = mPackageInfo.get(context);
-                Method makeApplication = loadedApk.getClass().getDeclaredMethod("makeApplication", boolean.class, Instrumentation.class);
+                Method makeApplication =
+                        loadedApk.getClass().getDeclaredMethod("makeApplication", boolean.class, Instrumentation.class);
                 application = (Application) makeApplication.invoke(loadedApk, true, null);
                 Field mInitialApplication = activityThread.getClass().getDeclaredField("mInitialApplication");
                 mInitialApplication.setAccessible(true);

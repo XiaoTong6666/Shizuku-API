@@ -3,7 +3,6 @@ package rikka.shizuku.server;
 import static rikka.shizuku.ShizukuApiConstants.REQUEST_PERMISSION_REPLY_ALLOWED;
 
 import android.os.Bundle;
-
 import moe.shizuku.server.IShizukuApplication;
 import rikka.shizuku.server.util.Logger;
 
@@ -35,7 +34,12 @@ public class ClientRecord {
         try {
             client.dispatchRequestPermissionResult(requestCode, reply);
         } catch (Throwable e) {
-            LOGGER.w(e, "dispatchRequestPermissionResult failed for client (uid=%d, pid=%d, package=%s)", uid, pid, packageName);
+            LOGGER.w(
+                    e,
+                    "dispatchRequestPermissionResult failed for client (uid=%d, pid=%d, package=%s)",
+                    uid,
+                    pid,
+                    packageName);
         }
     }
 }

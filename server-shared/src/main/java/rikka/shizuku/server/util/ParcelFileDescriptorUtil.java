@@ -1,9 +1,7 @@
 package rikka.shizuku.server.util;
 
-
 import android.os.ParcelFileDescriptor;
 import android.util.Log;
-
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -15,8 +13,7 @@ public class ParcelFileDescriptorUtil {
         ParcelFileDescriptor readSide = pipe[0];
         ParcelFileDescriptor writeSide = pipe[1];
 
-        new TransferThread(inputStream, new ParcelFileDescriptor.AutoCloseOutputStream(writeSide))
-                .start();
+        new TransferThread(inputStream, new ParcelFileDescriptor.AutoCloseOutputStream(writeSide)).start();
 
         return readSide;
     }
@@ -26,8 +23,7 @@ public class ParcelFileDescriptorUtil {
         ParcelFileDescriptor readSide = pipe[0];
         ParcelFileDescriptor writeSide = pipe[1];
 
-        new TransferThread(new ParcelFileDescriptor.AutoCloseInputStream(readSide), outputStream)
-                .start();
+        new TransferThread(new ParcelFileDescriptor.AutoCloseInputStream(readSide), outputStream).start();
 
         return writeSide;
     }

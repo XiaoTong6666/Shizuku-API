@@ -24,11 +24,14 @@ static int64_t getWindowSize(int fd) {
     return screen_size;
 }
 
-static jbyte RishTerminal_prepare(JNIEnv *env, jclass clazz) {
+static jbyte RishTerminal_prepare(JNIEnv* env, jclass clazz) {
     jbyte atty = 0;
-    if (isatty(STDIN_FILENO)) atty |= ATTY_IN;
-    if (isatty(STDOUT_FILENO)) atty |= ATTY_OUT;
-    if (isatty(STDERR_FILENO)) atty |= ATTY_ERR;
+    if (isatty(STDIN_FILENO))
+        atty |= ATTY_IN;
+    if (isatty(STDOUT_FILENO))
+        atty |= ATTY_OUT;
+    if (isatty(STDERR_FILENO))
+        atty |= ATTY_ERR;
 
     LOGD("istty stdin %d stdout %d stderr %d", (atty & ATTY_IN) ? 1 : 0, (atty & ATTY_OUT) ? 1 : 0,
          (atty & ATTY_ERR) ? 1 : 0);
@@ -43,10 +46,8 @@ static jbyte RishTerminal_prepare(JNIEnv *env, jclass clazz) {
     return atty;
 }
 
-static jint RishTerminal_start(
-        JNIEnv *env, jclass clazz, jbyte tty,
-        jint stdin_pipe, jint stdout_pipe, jint stderr_pipe) {
-
+static jint RishTerminal_start(JNIEnv* env, jclass clazz, jbyte tty, jint stdin_pipe,
+                               jint stdout_pipe, jint stderr_pipe) {
     int tty_fd;
     bool in_tty = tty & ATTY_IN;
     bool out_tty = tty & ATTY_OUT;
@@ -90,10 +91,10 @@ static jint RishTerminal_start(
         }
     };
 
-    transfer_async(STDIN_FILENO, stdin_pipe/*, func*/);
+    transfer_async(STDIN_FILENO, stdin_pipe /*, func*/);
     transfer_async(stdout_pipe, STDOUT_FILENO, func);
     if (!err_tty) {
-        transfer_async(stderr_pipe, STDERR_FILENO/*, func*/);
+        transfer_async(stderr_pipe, STDERR_FILENO /*, func*/);
     }
 
     auto sigwinch_handler = [](int sig) {
@@ -107,15 +108,15 @@ static jint RishTerminal_start(
     return tty_fd;
 }
 
-static jlong RishTerminal_waitForWindowSizeChange(JNIEnv *env, jclass clazz, jint fd) {
+static jlong RishTerminal_waitForWindowSizeChange(JNIEnv* env, jclass clazz, jint fd) {
     if (pthread_mutex_lock(&winch_mutex) != 0) {
         PLOGE("pthread_mutex_lock");
     }
 
-    return (jlong) getWindowSize(fd);
+    return (jlong)getWindowSize(fd);
 }
 
-static void RishTerminal_waitForProcessExit(JNIEnv *env, jclass clazz) {
+static void RishTerminal_waitForProcessExit(JNIEnv* env, jclass clazz) {
     if (pthread_mutex_lock(&mutex) != 0) {
         PLOGE("pthread_mutex_lock");
     }
@@ -125,16 +126,16 @@ static void RishTerminal_waitForProcessExit(JNIEnv *env, jclass clazz) {
     }
 }
 
-int rikka_rish_RishTerminal_registerNatives(JNIEnv *env) {
+int rikka_rish_RishTerminal_registerNatives(JNIEnv* env) {
     pthread_mutex_init(&mutex, nullptr);
     pthread_mutex_init(&winch_mutex, nullptr);
 
     auto clazz = env->FindClass("rikka/rish/RishTerminal");
     JNINativeMethod methods[] = {
-            {"prepare",                 "()B",     (void *) RishTerminal_prepare},
-            {"start",                   "(BIII)I", (void *) RishTerminal_start},
-            {"waitForWindowSizeChange", "(I)J",    (void *) RishTerminal_waitForWindowSizeChange},
-            {"waitForProcessExit",      "()V",     (void *) RishTerminal_waitForProcessExit},
+        {"prepare", "()B", (void*)RishTerminal_prepare},
+        {"start", "(BIII)I", (void*)RishTerminal_start},
+        {"waitForWindowSizeChange", "(I)J", (void*)RishTerminal_waitForWindowSizeChange},
+        {"waitForProcessExit", "()V", (void*)RishTerminal_waitForProcessExit},
     };
     return env->RegisterNatives(clazz, methods, sizeof(methods) / sizeof(methods[0]));
 }

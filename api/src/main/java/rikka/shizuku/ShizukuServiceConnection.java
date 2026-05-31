@@ -6,12 +6,9 @@ import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
 import android.os.RemoteException;
-
 import androidx.annotation.Nullable;
-
 import java.util.HashSet;
 import java.util.Set;
-
 import moe.shizuku.server.IShizukuServiceConnection;
 
 class ShizukuServiceConnection extends IShizukuServiceConnection.Stub {
@@ -47,11 +44,10 @@ class ShizukuServiceConnection extends IShizukuServiceConnection.Stub {
     @Override
     public void connected(IBinder binder) {
         MAIN_HANDLER.post(() -> {
-                    for (ServiceConnection conn : connections) {
-                        conn.onServiceConnected(componentName, binder);
-                    }
-                }
-        );
+            for (ServiceConnection conn : connections) {
+                conn.onServiceConnected(componentName, binder);
+            }
+        });
 
         // Hold the binder, or linkToDeath will not work after reference to
         // the binder is dropped
@@ -71,13 +67,12 @@ class ShizukuServiceConnection extends IShizukuServiceConnection.Stub {
         dead = true;
 
         MAIN_HANDLER.post(() -> {
-                    for (ServiceConnection conn : connections) {
-                        conn.onServiceDisconnected(componentName);
-                    }
+            for (ServiceConnection conn : connections) {
+                conn.onServiceDisconnected(componentName);
+            }
 
-                    connections.clear();
-                    ShizukuServiceConnections.remove(this);
-                }
-        );
+            connections.clear();
+            ShizukuServiceConnections.remove(this);
+        });
     }
 }

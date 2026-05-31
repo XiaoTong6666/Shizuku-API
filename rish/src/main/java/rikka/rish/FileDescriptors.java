@@ -3,7 +3,6 @@ package rikka.rish;
 import android.annotation.SuppressLint;
 import android.system.ErrnoException;
 import android.system.Os;
-
 import java.io.FileDescriptor;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;

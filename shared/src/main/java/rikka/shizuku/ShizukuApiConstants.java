@@ -24,7 +24,8 @@ public class ShizukuApiConstants {
     public static final String USER_SERVICE_ARG_PROCESS_NAME = "shizuku:user-service-arg-process-name";
     public static final String USER_SERVICE_ARG_NO_CREATE = "shizuku:user-service-arg-no-create";
     public static final String USER_SERVICE_ARG_DAEMON = "shizuku:user-service-arg-daemon";
-    public static final String USER_SERVICE_ARG_USE_32_BIT_APP_PROCESS = "shizuku:user-service-arg-use-32-bit-app-process";
+    public static final String USER_SERVICE_ARG_USE_32_BIT_APP_PROCESS =
+            "shizuku:user-service-arg-use-32-bit-app-process";
     public static final String USER_SERVICE_ARG_REMOVE = "shizuku:user-service-remove";
 
     @RestrictTo(LIBRARY_GROUP_PREFIX)
@@ -36,7 +37,8 @@ public class ShizukuApiConstants {
     public static final String BIND_APPLICATION_SERVER_UID = "shizuku:attach-reply-uid";
     public static final String BIND_APPLICATION_SERVER_SECONTEXT = "shizuku:attach-reply-secontext";
     public static final String BIND_APPLICATION_PERMISSION_GRANTED = "shizuku:attach-reply-permission-granted";
-    public static final String BIND_APPLICATION_SHOULD_SHOW_REQUEST_PERMISSION_RATIONALE = "shizuku:attach-reply-should-show-request-permission-rationale";
+    public static final String BIND_APPLICATION_SHOULD_SHOW_REQUEST_PERMISSION_RATIONALE =
+            "shizuku:attach-reply-should-show-request-permission-rationale";
 
     // request permission
     public static final String REQUEST_PERMISSION_REPLY_ALLOWED = "shizuku:request-permission-reply-allowed";

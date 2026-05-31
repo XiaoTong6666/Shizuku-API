@@ -5,15 +5,12 @@ import android.os.IBinder;
 import android.os.Parcel;
 import android.text.TextUtils;
 import android.util.Log;
-
 import androidx.annotation.NonNull;
-
 import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.Objects;
 
 @SuppressLint("PrivateApi")
 public class SystemServiceHelper {
@@ -74,8 +71,7 @@ public class SystemServiceHelper {
                 declaredField = cls.getDeclaredField(fieldName);
             } catch (NoSuchFieldException e) {
                 for (Field f : cls.getDeclaredFields()) {
-                    if (f.getType() != int.class)
-                        continue;
+                    if (f.getType() != int.class) continue;
 
                     String name = f.getName();
                     if (name.startsWith(fieldName + "_")
@@ -111,7 +107,8 @@ public class SystemServiceHelper {
      * @deprecated Use {@link ShizukuBinderWrapper} instead
      */
     @Deprecated
-    public static Parcel obtainParcel(@NonNull String serviceName, @NonNull String interfaceName, @NonNull String methodName) {
+    public static Parcel obtainParcel(
+            @NonNull String serviceName, @NonNull String interfaceName, @NonNull String methodName) {
         return obtainParcel(serviceName, interfaceName, interfaceName + "$Stub", methodName);
     }
 
@@ -127,7 +124,12 @@ public class SystemServiceHelper {
      * @deprecated Use {@link ShizukuBinderWrapper} instead
      */
     @Deprecated
-    public static Parcel obtainParcel(@NonNull String serviceName, @NonNull String interfaceName, @NonNull String className, @NonNull String methodName) {
-        throw new UnsupportedOperationException("Direct use of Shizuku#transactRemote is no longer supported, please use ShizukuBinderWrapper");
+    public static Parcel obtainParcel(
+            @NonNull String serviceName,
+            @NonNull String interfaceName,
+            @NonNull String className,
+            @NonNull String methodName) {
+        throw new UnsupportedOperationException(
+                "Direct use of Shizuku#transactRemote is no longer supported, please use ShizukuBinderWrapper");
     }
 }

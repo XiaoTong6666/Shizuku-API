@@ -8,15 +8,12 @@ import android.os.RemoteException;
 import android.os.SELinux;
 import android.os.SystemProperties;
 import android.system.Os;
-
 import androidx.annotation.CallSuper;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
-
 import java.io.File;
 import java.io.IOException;
 import java.util.Arrays;
-
 import moe.shizuku.server.IRemoteProcess;
 import moe.shizuku.server.IShizukuApplication;
 import moe.shizuku.server.IShizukuService;
@@ -31,9 +28,10 @@ import rikka.shizuku.server.util.OsUtils;
 import rikka.shizuku.server.util.UserHandleCompat;
 
 public abstract class Service<
-        UserServiceMgr extends UserServiceManager,
-        ClientMgr extends ClientManager<ConfigMgr>,
-        ConfigMgr extends ConfigManager> extends IShizukuService.Stub {
+                UserServiceMgr extends UserServiceManager,
+                ClientMgr extends ClientManager<ConfigMgr>,
+                ConfigMgr extends ConfigManager>
+        extends IShizukuService.Stub {
 
     private final UserServiceMgr userServiceManager;
     private final ConfigMgr configManager;
@@ -91,14 +89,13 @@ public abstract class Service<
             return;
         }
 
-        String msg = "Permission Denial: " + func + " from pid="
-                + Binder.getCallingPid()
-                + " is not manager ";
+        String msg = "Permission Denial: " + func + " from pid=" + Binder.getCallingPid() + " is not manager ";
         LOGGER.w(msg);
         throw new SecurityException(msg);
     }
 
-    public boolean checkCallerPermission(String func, int callingUid, int callingPid, @Nullable ClientRecord clientRecord) {
+    public boolean checkCallerPermission(
+            String func, int callingUid, int callingPid, @Nullable ClientRecord clientRecord) {
         return false;
     }
 
@@ -117,17 +114,14 @@ public abstract class Service<
         }
 
         if (clientRecord == null) {
-            String msg = "Permission Denial: " + func + " from pid="
-                    + Binder.getCallingPid()
-                    + " is not an attached client";
+            String msg =
+                    "Permission Denial: " + func + " from pid=" + Binder.getCallingPid() + " is not an attached client";
             LOGGER.w(msg);
             throw new SecurityException(msg);
         }
 
         if (!clientRecord.allowed) {
-            String msg = "Permission Denial: " + func + " from pid="
-                    + Binder.getCallingPid()
-                    + " requires permission";
+            String msg = "Permission Denial: " + func + " from pid=" + Binder.getCallingPid() + " requires permission";
             LOGGER.w(msg);
             throw new SecurityException(msg);
         }
@@ -150,7 +144,9 @@ public abstract class Service<
             targetFlags = flags;
         }
 
-        LOGGER.d("transact: uid=%d, descriptor=%s, code=%d", Binder.getCallingUid(), targetBinder.getInterfaceDescriptor(), targetCode);
+        LOGGER.d(
+                "transact: uid=%d, descriptor=%s, code=%d",
+                Binder.getCallingUid(), targetBinder.getInterfaceDescriptor(), targetCode);
 
         if (targetBinder instanceof Binder) {
             long id = Binder.clearCallingIdentity();
@@ -321,7 +317,9 @@ public abstract class Service<
     public final IRemoteProcess newProcess(String[] cmd, String[] env, String dir) {
         enforceCallingPermission("newProcess");
 
-        LOGGER.d("newProcess: uid=%d, cmd=%s, env=%s, dir=%s", Binder.getCallingUid(), Arrays.toString(cmd), Arrays.toString(env), dir);
+        LOGGER.d(
+                "newProcess: uid=%d, cmd=%s, env=%s, dir=%s",
+                Binder.getCallingUid(), Arrays.toString(cmd), Arrays.toString(env), dir);
 
         java.lang.Process process;
         try {

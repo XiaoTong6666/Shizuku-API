@@ -3,10 +3,8 @@ package rikka.shizuku.server.api;
 import android.os.IBinder;
 import android.os.ParcelFileDescriptor;
 import android.os.RemoteException;
-
 import java.io.IOException;
 import java.util.concurrent.TimeUnit;
-
 import moe.shizuku.server.IRemoteProcess;
 import rikka.shizuku.server.util.Logger;
 import rikka.shizuku.server.util.ParcelFileDescriptorUtil;
@@ -116,8 +114,7 @@ public class RemoteProcessHolder extends IRemoteProcess.Stub {
             } catch (IllegalThreadStateException ex) {
                 if (rem > 0) {
                     try {
-                        Thread.sleep(
-                                Math.min(TimeUnit.NANOSECONDS.toMillis(rem) + 1, 100));
+                        Thread.sleep(Math.min(TimeUnit.NANOSECONDS.toMillis(rem) + 1, 100));
                     } catch (InterruptedException e) {
                         throw new IllegalStateException();
                     }

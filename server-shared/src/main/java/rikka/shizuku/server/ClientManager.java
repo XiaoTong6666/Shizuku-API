@@ -2,11 +2,9 @@ package rikka.shizuku.server;
 
 import android.os.IBinder;
 import android.os.RemoteException;
-
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-
 import moe.shizuku.server.IShizukuApplication;
 import rikka.shizuku.server.util.Logger;
 
@@ -87,5 +85,3 @@ public class ClientManager<ConfigMgr extends ConfigManager> {
         return clientRecord;
     }
 }
-
-

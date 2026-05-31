@@ -37,9 +37,7 @@ public class RishHost {
 
         byte[] bytes = s.getBytes();
         byte[] result = new byte[bytes.length + 1];
-        System.arraycopy(bytes, 0,
-                result, 0,
-                bytes.length);
+        System.arraycopy(bytes, 0, result, 0, bytes.length);
         result[result.length - 1] = (byte) 0;
         return result;
     }
@@ -63,9 +61,13 @@ public class RishHost {
     private int exitCode = Integer.MAX_VALUE;
 
     public RishHost(
-            String[] args, String[] env, String dir,
+            String[] args,
+            String[] env,
+            String dir,
             byte tty,
-            ParcelFileDescriptor stdin, ParcelFileDescriptor stdout, ParcelFileDescriptor stderr) {
+            ParcelFileDescriptor stdin,
+            ParcelFileDescriptor stdout,
+            ParcelFileDescriptor stderr) {
 
         this.args = args;
         this.env = env;
@@ -82,16 +84,12 @@ public class RishHost {
     public void start() {
         Log.d(TAG, "start");
 
-
         byte[] argBlock = createCBytesForStringArray(args);
         byte[] envBlock = createCBytesForStringArray(env);
         byte[] dirBlock = createCBytesForString(dir);
 
         int[] result = start(
-                argBlock, args.length,
-                envBlock, env != null ? env.length : -1,
-                dirBlock,
-                tty, stdin, stdout, stderr);
+                argBlock, args.length, envBlock, env != null ? env.length : -1, dirBlock, tty, stdin, stdout, stderr);
 
         pid = result[0];
         ptmx = result[1];
@@ -114,10 +112,15 @@ public class RishHost {
     }
 
     private static native int[] start(
-            byte[] argBlock, int argc,
-            byte[] envBlock, int envc,
+            byte[] argBlock,
+            int argc,
+            byte[] envBlock,
+            int envc,
             byte[] dirBlock,
-            byte tty, int stdin, int stdout, int stderr);
+            byte tty,
+            int stdin,
+            int stdout,
+            int stderr);
 
     private static native void setWindowSize(int ptmx, long size);
 

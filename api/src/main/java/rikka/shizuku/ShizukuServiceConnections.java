@@ -1,7 +1,6 @@
 package rikka.shizuku;
 
 import androidx.annotation.NonNull;
-
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -12,8 +11,7 @@ class ShizukuServiceConnections {
 
     private static final Map<String, ShizukuServiceConnection> CACHE = Collections.synchronizedMap(new HashMap<>());
 
-    @NonNull
-    static ShizukuServiceConnection get(Shizuku.UserServiceArgs args) {
+    @NonNull static ShizukuServiceConnection get(Shizuku.UserServiceArgs args) {
         String key = args.tag != null ? args.tag : args.componentName.getClassName();
         ShizukuServiceConnection connection = CACHE.get(key);
 

@@ -6,8 +6,7 @@ public abstract class ConfigPackageEntry {
 
     protected static final Logger LOGGER = new Logger("ConfigPackageEntry");
 
-    public ConfigPackageEntry() {
-    }
+    public ConfigPackageEntry() {}
 
     public abstract boolean isAllowed();
 

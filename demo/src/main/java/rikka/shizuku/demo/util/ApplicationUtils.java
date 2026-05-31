@@ -3,7 +3,6 @@ package rikka.shizuku.demo.util;
 import android.annotation.SuppressLint;
 import android.app.Application;
 import android.os.Build;
-
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 
@@ -20,8 +19,7 @@ public class ApplicationUtils {
     }
 
     public static String getProcessName() {
-        if (Build.VERSION.SDK_INT >= 28)
-            return Application.getProcessName();
+        if (Build.VERSION.SDK_INT >= 28) return Application.getProcessName();
         else {
             try {
                 @SuppressLint("PrivateApi")
@@ -29,7 +27,10 @@ public class ApplicationUtils {
                 @SuppressLint("DiscouragedPrivateApi")
                 Method method = activityThread.getDeclaredMethod("currentProcessName");
                 return (String) method.invoke(null);
-            } catch (ClassNotFoundException | NoSuchMethodException | IllegalAccessException | InvocationTargetException e) {
+            } catch (ClassNotFoundException
+                    | NoSuchMethodException
+                    | IllegalAccessException
+                    | InvocationTargetException e) {
                 throw new RuntimeException(e);
             }
         }

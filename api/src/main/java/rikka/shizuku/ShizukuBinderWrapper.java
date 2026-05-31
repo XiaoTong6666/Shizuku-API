@@ -4,10 +4,8 @@ import android.os.IBinder;
 import android.os.IInterface;
 import android.os.Parcel;
 import android.os.RemoteException;
-
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
-
 import java.io.FileDescriptor;
 import java.util.Objects;
 
@@ -50,8 +48,7 @@ public class ShizukuBinderWrapper implements IBinder {
         return true;
     }
 
-    @Nullable
-    @Override
+    @Nullable @Override
     public String getInterfaceDescriptor() throws RemoteException {
         return original.getInterfaceDescriptor();
     }
@@ -66,8 +63,7 @@ public class ShizukuBinderWrapper implements IBinder {
         return original.isBinderAlive();
     }
 
-    @Nullable
-    @Override
+    @Nullable @Override
     public IInterface queryLocalInterface(@NonNull String descriptor) {
         return null;
     }

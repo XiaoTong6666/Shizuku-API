@@ -12,4 +12,3 @@ public class UserHandleCompat {
         return uid % PER_USER_RANGE;
     }
 }
-

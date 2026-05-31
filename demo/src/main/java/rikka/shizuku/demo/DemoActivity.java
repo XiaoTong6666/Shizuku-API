@@ -20,14 +20,12 @@ import android.os.IBinder;
 import android.os.Process;
 import android.os.RemoteException;
 import android.util.Log;
-
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
-
 import rikka.shizuku.Shizuku;
 import rikka.shizuku.ShizukuBinderWrapper;
 import rikka.shizuku.ShizukuSystemProperties;
@@ -61,7 +59,8 @@ public class DemoActivity extends Activity {
         }
     };
     private final Shizuku.OnBinderDeadListener BINDER_DEAD_LISTENER = () -> binding.text1.setText("Binder dead");
-    private final Shizuku.OnRequestPermissionResultListener REQUEST_PERMISSION_RESULT_LISTENER = this::onRequestPermissionsResult;
+    private final Shizuku.OnRequestPermissionResultListener REQUEST_PERMISSION_RESULT_LISTENER =
+            this::onRequestPermissionsResult;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -224,19 +223,23 @@ public class DemoActivity extends Activity {
             IPackageInstaller _packageInstaller = ShizukuSystemServerApi.PackageManager_getPackageInstaller();
             isRoot = Shizuku.getUid() == 0;
 
-            // the reason for use "com.android.shell" as installer package under adb is that getMySessions will check installer package's owner
+            // the reason for use "com.android.shell" as installer package under adb is that getMySessions will check
+            // installer package's owner
             installerPackageName = isRoot ? getPackageName() : "com.android.shell";
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 installerAttributionTag = getAttributionTag();
             }
             userId = isRoot ? Process.myUserHandle().hashCode() : 0;
-            packageInstaller = PackageInstallerUtils.createPackageInstaller(_packageInstaller, installerPackageName, installerAttributionTag, userId);
+            packageInstaller = PackageInstallerUtils.createPackageInstaller(
+                    _packageInstaller, installerPackageName, installerAttributionTag, userId);
             int sessionId;
             res.append("createSession: ");
 
-            PackageInstaller.SessionParams params = new PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL);
+            PackageInstaller.SessionParams params =
+                    new PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL);
             int installFlags = PackageInstallerUtils.getInstallFlags(params);
-            installFlags |= 0x00000004/*PackageManager.INSTALL_ALLOW_TEST*/ | 0x00000002/*PackageManager.INSTALL_REPLACE_EXISTING*/;
+            installFlags |= 0x00000004 /*PackageManager.INSTALL_ALLOW_TEST*/
+                    | 0x00000002 /*PackageManager.INSTALL_REPLACE_EXISTING*/;
             PackageInstallerUtils.setInstallFlags(params, installFlags);
 
             sessionId = packageInstaller.createSession(params);
@@ -244,7 +247,8 @@ public class DemoActivity extends Activity {
 
             res.append('\n').append("write: ");
 
-            IPackageInstallerSession _session = IPackageInstallerSession.Stub.asInterface(new ShizukuBinderWrapper(_packageInstaller.openSession(sessionId).asBinder()));
+            IPackageInstallerSession _session = IPackageInstallerSession.Stub.asInterface(new ShizukuBinderWrapper(
+                    _packageInstaller.openSession(sessionId).asBinder()));
             session = PackageInstallerUtils.createSession(_session);
 
             int i = 0;
@@ -282,7 +286,7 @@ public class DemoActivity extends Activity {
 
             res.append('\n').append("commit: ");
 
-            Intent[] results = new Intent[]{null};
+            Intent[] results = new Intent[] {null};
             CountDownLatch countDownLatch = new CountDownLatch(1);
             IntentSender intentSender = IntentSenderUtils.newInstance(new IIntentSenderAdaptor() {
                 @Override
@@ -297,7 +301,12 @@ public class DemoActivity extends Activity {
             Intent result = results[0];
             int status = result.getIntExtra(PackageInstaller.EXTRA_STATUS, PackageInstaller.STATUS_FAILURE);
             String message = result.getStringExtra(PackageInstaller.EXTRA_STATUS_MESSAGE);
-            res.append('\n').append("status: ").append(status).append(" (").append(message).append(")");
+            res.append('\n')
+                    .append("status: ")
+                    .append(status)
+                    .append(" (")
+                    .append(message)
+                    .append(")");
 
         } catch (Throwable tr) {
             tr.printStackTrace();
@@ -352,8 +361,12 @@ public class DemoActivity extends Activity {
             if (Shizuku.getVersion() < 9) {
                 res.append("requires Shizuku API 9");
             } else {
-                res.append("ro.build.fingerprint=").append(ShizukuSystemProperties.get("ro.build.fingerprint")).append('\n');
-                res.append("ro.build.version.sdk=").append(ShizukuSystemProperties.getInt("ro.build.version.sdk", -1)).append('\n');
+                res.append("ro.build.fingerprint=")
+                        .append(ShizukuSystemProperties.get("ro.build.fingerprint"))
+                        .append('\n');
+                res.append("ro.build.version.sdk=")
+                        .append(ShizukuSystemProperties.getInt("ro.build.version.sdk", -1))
+                        .append('\n');
             }
         } catch (Throwable tr) {
             tr.printStackTrace();
@@ -366,7 +379,9 @@ public class DemoActivity extends Activity {
         @Override
         public void onServiceConnected(ComponentName componentName, IBinder binder) {
             StringBuilder res = new StringBuilder();
-            res.append("onServiceConnected: ").append(componentName.getClassName()).append('\n');
+            res.append("onServiceConnected: ")
+                    .append(componentName.getClassName())
+                    .append('\n');
             if (binder != null && binder.pingBinder()) {
                 IUserService service = IUserService.Stub.asInterface(binder);
                 try {
@@ -387,12 +402,12 @@ public class DemoActivity extends Activity {
         }
     };
 
-    private final Shizuku.UserServiceArgs userServiceArgs =
-            new Shizuku.UserServiceArgs(new ComponentName(BuildConfig.APPLICATION_ID, UserService.class.getName()))
-                    .daemon(false)
-                    .processNameSuffix("service")
-                    .debuggable(BuildConfig.DEBUG)
-                    .version(BuildConfig.VERSION_CODE);
+    private final Shizuku.UserServiceArgs userServiceArgs = new Shizuku.UserServiceArgs(
+                    new ComponentName(BuildConfig.APPLICATION_ID, UserService.class.getName()))
+            .daemon(false)
+            .processNameSuffix("service")
+            .debuggable(BuildConfig.DEBUG)
+            .version(BuildConfig.VERSION_CODE);
 
     private void bindUserService() {
         StringBuilder res = new StringBuilder();
