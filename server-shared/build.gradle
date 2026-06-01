@@ -1,6 +1,6 @@
 plugins {
-    alias(libs.plugins.android.library)
-    alias(libs.plugins.refine)
+    id("com.android.library")
+    id("dev.rikka.tools.refine")
 }
 
 android {
