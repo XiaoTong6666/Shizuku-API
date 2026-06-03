@@ -2,7 +2,7 @@
 agp = "9.2.1"
 kotlin = "2.3.21"
 androidx-annotation = "1.10.0"
-androidx-core = "1.18.0"
+androidx-core = "1.19.0"
 parcelablelist = "2.0.1"
 hidden-api = "4.4.0"
 refine = "4.4.0"
