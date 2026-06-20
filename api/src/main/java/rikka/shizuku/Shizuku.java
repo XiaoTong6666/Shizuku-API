@@ -25,6 +25,7 @@ import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.annotation.RestrictTo;
 import java.util.ArrayList;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Objects;
 import moe.shizuku.server.IShizukuApplication;
@@ -275,7 +276,12 @@ public class Shizuku {
 
     private static void addBinderReceivedListener(
             @NonNull OnBinderReceivedListener listener, boolean sticky, @Nullable Handler handler) {
-        if (sticky && binderReady) {
+        boolean callImmediately = false;
+        synchronized (RECEIVED_LISTENERS) {
+            callImmediately = sticky && binderReady;
+            RECEIVED_LISTENERS.add(new ListenerHolder<>(listener, handler));
+        }
+        if (callImmediately) {
             if (handler != null) {
                 handler.post(listener::onBinderReceived);
             } else if (Looper.myLooper() == Looper.getMainLooper()) {
@@ -283,9 +289,6 @@ public class Shizuku {
             } else {
                 MAIN_HANDLER.post(listener::onBinderReceived);
             }
-        }
-        synchronized (RECEIVED_LISTENERS) {
-            RECEIVED_LISTENERS.add(new ListenerHolder<>(listener, handler));
         }
     }
 
@@ -298,25 +301,27 @@ public class Shizuku {
      */
     public static boolean removeBinderReceivedListener(@NonNull OnBinderReceivedListener listener) {
         synchronized (RECEIVED_LISTENERS) {
-            return RECEIVED_LISTENERS.removeIf(holder -> holder.listener == listener);
+            return removeListener(RECEIVED_LISTENERS, listener);
         }
     }
 
     private static void scheduleBinderReceivedListeners() {
+        List<ListenerHolder<OnBinderReceivedListener>> listeners;
         synchronized (RECEIVED_LISTENERS) {
-            for (ListenerHolder<OnBinderReceivedListener> holder : RECEIVED_LISTENERS) {
-                if (holder.handler != null) {
-                    holder.handler.post(holder.listener::onBinderReceived);
+            binderReady = true;
+            listeners = new ArrayList<>(RECEIVED_LISTENERS);
+        }
+        for (ListenerHolder<OnBinderReceivedListener> holder : listeners) {
+            if (holder.handler != null) {
+                holder.handler.post(holder.listener::onBinderReceived);
+            } else {
+                if (Looper.myLooper() == Looper.getMainLooper()) {
+                    holder.listener.onBinderReceived();
                 } else {
-                    if (Looper.myLooper() == Looper.getMainLooper()) {
-                        holder.listener.onBinderReceived();
-                    } else {
-                        MAIN_HANDLER.post(holder.listener::onBinderReceived);
-                    }
+                    MAIN_HANDLER.post(holder.listener::onBinderReceived);
                 }
             }
         }
-        binderReady = true;
     }
 
     /**
@@ -353,21 +358,23 @@ public class Shizuku {
      */
     public static boolean removeBinderDeadListener(@NonNull OnBinderDeadListener listener) {
         synchronized (RECEIVED_LISTENERS) {
-            return DEAD_LISTENERS.removeIf(holder -> holder.listener == listener);
+            return removeListener(DEAD_LISTENERS, listener);
         }
     }
 
     private static void scheduleBinderDeadListeners() {
+        List<ListenerHolder<OnBinderDeadListener>> listeners;
         synchronized (RECEIVED_LISTENERS) {
-            for (ListenerHolder<OnBinderDeadListener> holder : DEAD_LISTENERS) {
-                if (holder.handler != null) {
-                    holder.handler.post(holder.listener::onBinderDead);
+            listeners = new ArrayList<>(DEAD_LISTENERS);
+        }
+        for (ListenerHolder<OnBinderDeadListener> holder : listeners) {
+            if (holder.handler != null) {
+                holder.handler.post(holder.listener::onBinderDead);
+            } else {
+                if (Looper.myLooper() == Looper.getMainLooper()) {
+                    holder.listener.onBinderDead();
                 } else {
-                    if (Looper.myLooper() == Looper.getMainLooper()) {
-                        holder.listener.onBinderDead();
-                    } else {
-                        MAIN_HANDLER.post(holder.listener::onBinderDead);
-                    }
+                    MAIN_HANDLER.post(holder.listener::onBinderDead);
                 }
             }
         }
@@ -408,21 +415,34 @@ public class Shizuku {
      */
     public static boolean removeRequestPermissionResultListener(@NonNull OnRequestPermissionResultListener listener) {
         synchronized (RECEIVED_LISTENERS) {
-            return PERMISSION_LISTENERS.removeIf(holder -> holder.listener == listener);
+            return removeListener(PERMISSION_LISTENERS, listener);
         }
     }
 
+    private static <T> boolean removeListener(@NonNull List<ListenerHolder<T>> listeners, @NonNull T listener) {
+        boolean removed = false;
+        for (Iterator<ListenerHolder<T>> iterator = listeners.iterator(); iterator.hasNext(); ) {
+            if (iterator.next().listener == listener) {
+                iterator.remove();
+                removed = true;
+            }
+        }
+        return removed;
+    }
+
     private static void scheduleRequestPermissionResultListener(int requestCode, int result) {
+        List<ListenerHolder<OnRequestPermissionResultListener>> listeners;
         synchronized (RECEIVED_LISTENERS) {
-            for (ListenerHolder<OnRequestPermissionResultListener> holder : PERMISSION_LISTENERS) {
-                if (holder.handler != null) {
-                    holder.handler.post(() -> holder.listener.onRequestPermissionResult(requestCode, result));
+            listeners = new ArrayList<>(PERMISSION_LISTENERS);
+        }
+        for (ListenerHolder<OnRequestPermissionResultListener> holder : listeners) {
+            if (holder.handler != null) {
+                holder.handler.post(() -> holder.listener.onRequestPermissionResult(requestCode, result));
+            } else {
+                if (Looper.myLooper() == Looper.getMainLooper()) {
+                    holder.listener.onRequestPermissionResult(requestCode, result);
                 } else {
-                    if (Looper.myLooper() == Looper.getMainLooper()) {
-                        holder.listener.onRequestPermissionResult(requestCode, result);
-                    } else {
-                        MAIN_HANDLER.post(() -> holder.listener.onRequestPermissionResult(requestCode, result));
-                    }
+                    MAIN_HANDLER.post(() -> holder.listener.onRequestPermissionResult(requestCode, result));
                 }
             }
         }
