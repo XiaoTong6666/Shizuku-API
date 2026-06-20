@@ -55,5 +55,5 @@ dependencies {
     implementation project(':provider') // required by Shizuku only
 
     compileOnly project(':demo-hidden-api-stub')
-    implementation 'org.lsposed.hiddenapibypass:hiddenapibypass:6.1' // bypass hidden api restriction, https://github.com/LSPosed/AndroidHiddenApiBypass
+    implementation libs.hiddenapibypass // bypass hidden api restriction, https://github.com/LSPosed/AndroidHiddenApiBypass
 }
