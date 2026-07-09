@@ -6,9 +6,9 @@ import org.gradle.external.javadoc.StandardJavadocDocletOptions
 import org.gradle.plugins.signing.SigningExtension
 
 plugins {
-    alias(libs.plugins.android.application) apply false
-    alias(libs.plugins.android.library) apply false
-    alias(libs.plugins.refine) apply false
+    id("com.android.application") apply false
+    id("com.android.library") apply false
+    id("dev.rikka.tools.refine") apply false
 }
 
 apply(from = "manifest.gradle.kts")
