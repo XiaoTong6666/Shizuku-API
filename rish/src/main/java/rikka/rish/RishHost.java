@@ -58,7 +58,10 @@ public class RishHost {
     private final int stderr;
     private int pid;
     private int ptmx;
-    private int exitCode = Integer.MAX_VALUE;
+    private volatile int exitCode = Integer.MAX_VALUE;
+    private Runnable exitCleanup;
+    private boolean exited;
+    private boolean exitCleanupRun;
 
     public RishHost(
             String[] args,
@@ -94,7 +97,25 @@ public class RishHost {
         pid = result[0];
         ptmx = result[1];
 
-        new Thread(() -> exitCode = waitFor(pid)).start();
+        new Thread(() -> {
+                    exitCode = waitFor(pid);
+                    // The shell leader may exit while background descendants still own the
+                    // process group. Revoke them before publishing the completed result.
+                    kill(pid);
+
+                    Runnable cleanup;
+                    synchronized (this) {
+                        exited = true;
+                        cleanup = exitCleanup;
+                        if (cleanup != null) {
+                            exitCleanupRun = true;
+                        }
+                    }
+                    if (cleanup != null) {
+                        cleanup.run();
+                    }
+                })
+                .start();
     }
 
     public int getPid() {
@@ -105,10 +126,30 @@ public class RishHost {
         return exitCode;
     }
 
+    void setExitCleanup(Runnable cleanup) {
+        boolean runNow;
+        synchronized (this) {
+            exitCleanup = cleanup;
+            runNow = exited && !exitCleanupRun;
+            if (runNow) {
+                exitCleanupRun = true;
+            }
+        }
+        if (runNow) {
+            cleanup.run();
+        }
+    }
+
     public void setWindowSize(long size) {
         Log.d(TAG, "setWindowSize");
 
         setWindowSize(ptmx, size);
+    }
+
+    public void destroy() {
+        if (pid > 0) {
+            kill(pid);
+        }
     }
 
     private static native int[] start(
@@ -125,4 +166,6 @@ public class RishHost {
     private static native void setWindowSize(int ptmx, long size);
 
     private static native int waitFor(int pid);
+
+    private static native void kill(int pid);
 }

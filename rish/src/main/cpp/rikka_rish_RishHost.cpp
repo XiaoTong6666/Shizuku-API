@@ -1,4 +1,5 @@
 #include <jni.h>
+#include <cerrno>
 #include <unistd.h>
 #include <termios.h>
 #include <fcntl.h>
@@ -79,7 +80,7 @@ static jintArray RishHost_startHost(JNIEnv* env, jclass clazz, jbyteArray argBlo
         LOGD("ptmx %d", ptmx);
     }
 
-    int stdin_pipe[2]{-1}, stdout_pipe[2]{-1}, stderr_pipe[2]{-1};
+    int stdin_pipe[2]{-1}, stdout_pipe[2]{-1}, stderr_pipe[2]{-1}, session_pipe[2]{-1};
 
     LOGD("istty stdin %d stdout %d stderr %d", (tty & ATTY_IN) ? 1 : 0, (tty & ATTY_OUT) ? 1 : 0,
          (tty & ATTY_ERR) ? 1 : 0);
@@ -92,6 +93,11 @@ static jintArray RishHost_startHost(JNIEnv* env, jclass clazz, jbyteArray argBlo
     }
     if (!err_tty) {
         pipe2(stderr_pipe, 0);
+    }
+    if (pipe2(session_pipe, O_CLOEXEC) == -1) {
+        env->ThrowNew(env->FindClass("java/lang/IllegalStateException"),
+                      "Unable to create session pipe");
+        return nullptr;
     }
 
     const char* pargBlock = getBytes(env, argBlock);
@@ -119,6 +125,8 @@ static jintArray RishHost_startHost(JNIEnv* env, jclass clazz, jbyteArray argBlo
 
     auto pid = fork();
     if (pid == -1) {
+        close(session_pipe[0]);
+        close(session_pipe[1]);
         freeStringVector(argv);
         free((void*)envv);
         releaseBytes(env, argBlock, pargBlock);
@@ -130,11 +138,25 @@ static jintArray RishHost_startHost(JNIEnv* env, jclass clazz, jbyteArray argBlo
     }
 
     if (pid > 0) {
+        close(session_pipe[1]);
+        char session_ready;
+        ssize_t session_result;
+        do {
+            session_result = read(session_pipe[0], &session_ready, sizeof(session_ready));
+        } while (session_result == -1 && errno == EINTR);
+        close(session_pipe[0]);
+
         freeStringVector(argv);
         free((void*)envv);
         releaseBytes(env, argBlock, pargBlock);
         releaseBytes(env, envBlock, penvBlock);
         releaseBytes(env, dirBlock, pdir);
+
+        if (session_result != sizeof(session_ready)) {
+            env->ThrowNew(env->FindClass("java/lang/IllegalStateException"),
+                          "Child failed to create process group");
+            return nullptr;
+        }
 
         auto called = std::make_shared<std::atomic_bool>(false);
         auto func = [pid, called]() {
@@ -142,8 +164,8 @@ static jintArray RishHost_startHost(JNIEnv* env, jclass clazz, jbyteArray argBlo
                 return;
             }
 
-            LOGW("client dead, kill forked process");
-            kill(pid, SIGKILL);
+            LOGW("client dead, kill forked process group");
+            kill(-pid, SIGKILL);
         };
 
         if (in_tty) {
@@ -170,10 +192,18 @@ static jintArray RishHost_startHost(JNIEnv* env, jclass clazz, jbyteArray argBlo
         env->SetIntArrayRegion(result, 1, 1, &ptmx);
         return result;
     } else {
+        close(session_pipe[0]);
         if (setsid() < 0) {
             PLOGE("setsid");
-            exit(1);
+            _exit(127);
         }
+        char session_ready = 1;
+        if (write(session_pipe[1], &session_ready, sizeof(session_ready)) !=
+            sizeof(session_ready)) {
+            PLOGE("signal session ready");
+            _exit(127);
+        }
+        close(session_pipe[1]);
 
         if (pdir) {
             LOGD("attempt to chdir %s", pdir);
@@ -286,12 +316,24 @@ static jint RishHost_waitFor(JNIEnv* env, jclass clazz, jint pid) {
     return -1;
 }
 
+static void RishHost_kill(JNIEnv* env, jclass clazz, jint pid) {
+    if (pid <= 0)
+        return;
+    // The child calls setsid() before exec, so its pid is also the process-group id.
+    // Kill the entire group to revoke descendants that would otherwise survive as
+    // orphaned privileged processes after the shell leader exits.
+    if (TEMP_FAILURE_RETRY(kill(-pid, SIGKILL)) == -1 && errno != ESRCH) {
+        PLOGE("kill process group %d", pid);
+    }
+}
+
 int rikka_rish_RishHost_registerNatives(JNIEnv* env) {
     auto clazz = env->FindClass("rikka/rish/RishHost");
     JNINativeMethod methods[] = {
         {"start", "([BI[BI[BBIII)[I", (void*)RishHost_startHost},
         {"setWindowSize", "(IJ)V", (void*)RishHost_setWindowSize},
         {"waitFor", "(I)I", (void*)RishHost_waitFor},
+        {"kill", "(I)V", (void*)RishHost_kill},
     };
     return env->RegisterNatives(clazz, methods, sizeof(methods) / sizeof(methods[0]));
 }

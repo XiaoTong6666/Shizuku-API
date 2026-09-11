@@ -46,6 +46,25 @@ public abstract class UserServiceManager {
 
     public UserServiceManager() {}
 
+    protected long beginUserServiceCapabilityCreation(int uid, int pid) {
+        return 0;
+    }
+
+    protected boolean isUserServiceCapabilityCurrent(UserServiceRecord record) {
+        return true;
+    }
+
+    protected boolean finishUserServiceCapabilityCreation(UserServiceRecord record, Runnable publisher) {
+        publisher.run();
+        return true;
+    }
+
+    protected void abortUserServiceCapabilityCreation(UserServiceRecord record) {}
+
+    protected boolean requiresUserServiceProcessRegistration() {
+        return false;
+    }
+
     public PackageInfo ensureCallingPackageForUserService(String packageName, int appId, int userId) {
         @SuppressLint("UnsafeOptInUsageError")
         PackageInfo packageInfo = PackageManagerApis.getPackageInfoNoThrow(
@@ -94,8 +113,20 @@ public abstract class UserServiceManager {
     }
 
     private void removeUserServiceLocked(UserServiceRecord record) {
+        removeUserServiceLocked(record, false);
+    }
+
+    private void removeUserServiceLocked(UserServiceRecord record, boolean securityRevoke) {
         if (userServiceRecords.values().remove(record)) {
-            record.destroy();
+            if (record.capabilityPending) {
+                record.capabilityPending = false;
+                abortUserServiceCapabilityCreation(record);
+            }
+            if (securityRevoke) {
+                record.securityDestroy();
+            } else {
+                record.destroy();
+            }
             onUserServiceRecordRemoved(record);
         }
     }
@@ -105,6 +136,7 @@ public abstract class UserServiceManager {
         Objects.requireNonNull(options, "options is null");
 
         int uid = Binder.getCallingUid();
+        int pid = Binder.getCallingPid();
         int appId = UserHandleCompat.getAppId(uid);
         int userId = UserHandleCompat.getUserId(uid);
 
@@ -149,7 +181,7 @@ public abstract class UserServiceManager {
                 }
             } else {
                 UserServiceRecord newRecord =
-                        createUserServiceRecordIfNeededLocked(record, key, versionCode, daemon, packageInfo);
+                        createUserServiceRecordIfNeededLocked(record, key, versionCode, daemon, packageInfo, uid, pid);
                 newRecord.callbacks.register(conn);
 
                 if (newRecord.service != null && newRecord.service.pingBinder()) {
@@ -188,7 +220,13 @@ public abstract class UserServiceManager {
     }
 
     private UserServiceRecord createUserServiceRecordIfNeededLocked(
-            UserServiceRecord record, String key, int versionCode, boolean daemon, PackageInfo packageInfo) {
+            UserServiceRecord record,
+            String key,
+            int versionCode,
+            boolean daemon,
+            PackageInfo packageInfo,
+            int ownerUid,
+            int ownerPid) {
 
         if (record != null) {
             if (record.versionCode != versionCode) {
@@ -209,7 +247,8 @@ public abstract class UserServiceManager {
             removeUserServiceLocked(record);
         }
 
-        record = new UserServiceRecord(versionCode, daemon) {
+        long capabilityEpoch = beginUserServiceCapabilityCreation(ownerUid, ownerPid);
+        record = new UserServiceRecord(versionCode, daemon, ownerUid, ownerPid, capabilityEpoch) {
 
             @Override
             public void removeSelf() {
@@ -249,6 +288,14 @@ public abstract class UserServiceManager {
 
         LOGGER.v("Starting process for service record %s (%s)...", key, token);
 
+        synchronized (this) {
+            if (!userServiceRecords.containsValue(record) || !isUserServiceCapabilityCurrent(record)) {
+                removeUserServiceLocked(record, true);
+                LOGGER.w("Skip stale user service start for %s (%s)", key, token);
+                return;
+            }
+        }
+
         String cmd = getUserServiceStartCmd(
                 record,
                 key,
@@ -287,7 +334,7 @@ public abstract class UserServiceManager {
             boolean use32Bits,
             boolean debug);
 
-    private void sendUserServiceLocked(IBinder binder, String token) {
+    private UserServiceRecord findUserServiceByTokenLocked(String token) {
         Map.Entry<String, UserServiceRecord> entry = null;
         for (Map.Entry<String, UserServiceRecord> e : userServiceRecords.entrySet()) {
             if (e.getValue().token.equals(token)) {
@@ -300,19 +347,61 @@ public abstract class UserServiceManager {
             throw new IllegalArgumentException("unable to find token " + token);
         }
 
+        return entry.getValue();
+    }
+
+    private void sendUserServiceLocked(IBinder binder, String token, int callingPid) {
+        UserServiceRecord record = findUserServiceByTokenLocked(token);
+
         LOGGER.v("Received binder for service record %s", token);
 
-        UserServiceRecord record = entry.getValue();
-        record.setBinder(binder);
+        if (requiresUserServiceProcessRegistration()) {
+            if (!record.hasProcessIdentity() || record.getProcessPid() != callingPid) {
+                throw new SecurityException("user service process was not registered for token " + token);
+            }
+        } else if (!record.hasProcessIdentity()) {
+            record.setProcessIdentity(callingPid, -1);
+        }
+
+        if (record.capabilityPending) {
+            record.capabilityPending = false;
+            boolean committed = finishUserServiceCapabilityCreation(record, () -> record.setBinder(binder));
+            if (!committed) {
+                removeUserServiceLocked(record, true);
+                throw new SecurityException("permission changed while starting user service");
+            }
+        } else {
+            record.setBinder(binder);
+        }
     }
 
     public void attachUserService(IBinder binder, Bundle options) {
         Objects.requireNonNull(binder, "binder is null");
         String token =
                 Objects.requireNonNull(options.getString(ShizukuApiConstants.USER_SERVICE_ARG_TOKEN), "token is null");
+        int callingPid = Binder.getCallingPid();
 
         synchronized (this) {
-            sendUserServiceLocked(binder, token);
+            sendUserServiceLocked(binder, token, callingPid);
+        }
+    }
+
+    public boolean registerUserServiceProcess(String token, int pid, int pgid) {
+        synchronized (this) {
+            UserServiceRecord record;
+            try {
+                record = findUserServiceByTokenLocked(token);
+            } catch (IllegalArgumentException e) {
+                return false;
+            }
+            if (!record.registerProcessIdentity(pid, pgid)) {
+                return false;
+            }
+            if (!isUserServiceCapabilityCurrent(record)) {
+                removeUserServiceLocked(record, true);
+                return false;
+            }
+            return true;
         }
     }
 
@@ -321,13 +410,66 @@ public abstract class UserServiceManager {
     public void onUserServiceRecordRemoved(UserServiceRecord record) {}
 
     public void removeUserServicesForPackage(String packageName) {
-        List<UserServiceRecord> list = packageUserServiceRecords.get(packageName);
+        List<UserServiceRecord> list = packageUserServiceRecords.remove(packageName);
         if (list != null) {
-            for (UserServiceRecord record : list) {
-                record.removeSelf();
-                LOGGER.i("Remove user service %s for package %s", record.token, packageName);
+            List<UserServiceRecord> snapshot;
+            synchronized (list) {
+                snapshot = new ArrayList<>(list);
             }
-            packageUserServiceRecords.remove(packageName);
+            synchronized (this) {
+                for (UserServiceRecord record : snapshot) {
+                    removeUserServiceLocked(record);
+                    LOGGER.i("Remove user service %s for package %s", record.token, packageName);
+                }
+            }
+        }
+    }
+
+    public void revokeUserServicesForPackage(String packageName) {
+        List<UserServiceRecord> list = packageUserServiceRecords.remove(packageName);
+        if (list == null) {
+            return;
+        }
+        List<UserServiceRecord> snapshot;
+        synchronized (list) {
+            snapshot = new ArrayList<>(list);
+        }
+        synchronized (this) {
+            for (UserServiceRecord record : snapshot) {
+                removeUserServiceLocked(record, true);
+                LOGGER.i("Security-revoked user service %s for package %s", record.token, packageName);
+            }
+        }
+    }
+
+    public boolean hasUserServicesForPackage(String packageName) {
+        List<UserServiceRecord> list = packageUserServiceRecords.get(packageName);
+        return list != null && !list.isEmpty();
+    }
+
+    public void revokeUserServicesForUid(int uid) {
+        List<UserServiceRecord> snapshot = new ArrayList<>();
+        synchronized (this) {
+            for (UserServiceRecord record : new ArrayList<>(userServiceRecords.values())) {
+                if (record.ownerUid == uid) {
+                    snapshot.add(record);
+                }
+            }
+            for (UserServiceRecord record : snapshot) {
+                removeUserServiceLocked(record, true);
+                LOGGER.i("Security-revoked user service %s for uid %d", record.token, uid);
+            }
+        }
+    }
+
+    public boolean hasUserServicesForUid(int uid) {
+        synchronized (this) {
+            for (UserServiceRecord record : userServiceRecords.values()) {
+                if (record.ownerUid == uid) {
+                    return true;
+                }
+            }
+            return false;
         }
     }
 }

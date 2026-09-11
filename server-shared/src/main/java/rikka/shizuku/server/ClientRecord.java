@@ -15,8 +15,9 @@ public class ClientRecord {
     public final IShizukuApplication client;
     public final String packageName;
     public final int apiVersion;
-    public boolean allowed;
-    public boolean onetime;
+    public volatile boolean allowed;
+    public volatile boolean onetime;
+    public volatile boolean supportsServerBinderHandoff;
 
     public ClientRecord(int uid, int pid, IShizukuApplication client, String packageName, int apiVersion) {
         this.uid = uid;
@@ -25,6 +26,7 @@ public class ClientRecord {
         this.packageName = packageName;
         this.allowed = false;
         this.onetime = false;
+        this.supportsServerBinderHandoff = false;
         this.apiVersion = apiVersion;
     }
 

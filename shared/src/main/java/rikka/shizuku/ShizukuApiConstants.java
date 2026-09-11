@@ -39,6 +39,7 @@ public class ShizukuApiConstants {
     public static final String BIND_APPLICATION_PERMISSION_GRANTED = "shizuku:attach-reply-permission-granted";
     public static final String BIND_APPLICATION_SHOULD_SHOW_REQUEST_PERMISSION_RATIONALE =
             "shizuku:attach-reply-should-show-request-permission-rationale";
+    public static final String BIND_APPLICATION_BINDER_GENERATION = "sui:attach-reply-binder-generation";
 
     // request permission
     public static final String REQUEST_PERMISSION_REPLY_ALLOWED = "shizuku:request-permission-reply-allowed";
@@ -48,4 +49,7 @@ public class ShizukuApiConstants {
     // attach application
     public static final String ATTACH_APPLICATION_PACKAGE_NAME = "shizuku:attach-package-name";
     public static final String ATTACH_APPLICATION_API_VERSION = "shizuku:attach-api-version";
+    public static final String ATTACH_APPLICATION_SUPPORTS_SERVER_BINDER_HANDOFF =
+            "sui:attach-supports-server-binder-handoff";
+    public static final String ATTACH_APPLICATION_BINDER_GENERATION = "sui:attach-binder-generation";
 }

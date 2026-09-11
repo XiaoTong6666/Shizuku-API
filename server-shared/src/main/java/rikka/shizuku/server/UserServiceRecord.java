@@ -6,6 +6,9 @@ import android.os.Binder;
 import android.os.IBinder;
 import android.os.Parcel;
 import android.os.RemoteCallbackList;
+import android.system.ErrnoException;
+import android.system.Os;
+import android.system.OsConstants;
 import java.util.UUID;
 import moe.shizuku.server.IShizukuServiceConnection;
 import rikka.shizuku.server.util.HandlerUtil;
@@ -32,20 +35,55 @@ public abstract class UserServiceRecord {
 
     private final IBinder.DeathRecipient deathRecipient;
     public final int versionCode;
+    public final int ownerUid;
+    public final int ownerPid;
+    public final long capabilityEpoch;
     public String token;
     public IBinder service;
     public final RemoteCallbackList<IShizukuServiceConnection> callbacks = new ConnectionList();
     public boolean daemon;
     public boolean starting;
+    public boolean capabilityPending;
+    private int processPid = -1;
+    private int processPgid = -1;
 
     public UserServiceRecord(int versionCode, boolean daemon) {
+        this(versionCode, daemon, -1, -1, 0);
+    }
+
+    public UserServiceRecord(int versionCode, boolean daemon, int ownerUid, int ownerPid, long capabilityEpoch) {
         this.versionCode = versionCode;
+        this.ownerUid = ownerUid;
+        this.ownerPid = ownerPid;
+        this.capabilityEpoch = capabilityEpoch;
         this.token = UUID.randomUUID().toString() + "-" + System.currentTimeMillis();
         this.deathRecipient = () -> {
             LOGGER.v("Binder for service record %s is dead", token);
             removeSelf();
         };
         this.daemon = daemon;
+        this.capabilityPending = capabilityEpoch != 0;
+    }
+
+    public synchronized boolean registerProcessIdentity(int pid, int pgid) {
+        if (processPid > 0) {
+            return processPid == pid && processPgid == pgid;
+        }
+        this.processPid = pid;
+        this.processPgid = pgid;
+        return true;
+    }
+
+    public synchronized void setProcessIdentity(int pid, int pgid) {
+        registerProcessIdentity(pid, pgid);
+    }
+
+    public synchronized int getProcessPid() {
+        return processPid;
+    }
+
+    public synchronized boolean hasProcessIdentity() {
+        return processPid > 0;
     }
 
     public void setStartingTimeout(long timeoutMillis) {
@@ -136,5 +174,26 @@ public abstract class UserServiceRecord {
         }
 
         callbacks.kill();
+    }
+
+    public void securityDestroy() {
+        destroy();
+
+        int pid;
+        int pgid;
+        synchronized (this) {
+            pid = processPid;
+            pgid = processPgid;
+        }
+        if (pid <= 0) {
+            return;
+        }
+        try {
+            Os.kill(pgid == pid ? -pgid : pid, OsConstants.SIGKILL);
+        } catch (ErrnoException e) {
+            if (e.errno != OsConstants.ESRCH) {
+                LOGGER.w(e, "Failed to kill user service process %d", pid);
+            }
+        }
     }
 }
