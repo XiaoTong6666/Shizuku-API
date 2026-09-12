@@ -21,6 +21,43 @@ public abstract class RishService {
 
     private static final boolean IS_ROOT = Os.getuid() == 0;
 
+    private static RishHost putHost(int pid, RishHost host) {
+        synchronized (HOSTS) {
+            return HOSTS.put(pid, host);
+        }
+    }
+
+    private static RishHost removeHost(int pid) {
+        synchronized (HOSTS) {
+            return HOSTS.remove(pid);
+        }
+    }
+
+    private static boolean removeHost(int pid, RishHost expected) {
+        synchronized (HOSTS) {
+            if (HOSTS.get(pid) != expected) {
+                return false;
+            }
+            HOSTS.remove(pid);
+            return true;
+        }
+    }
+
+    private static void putExitCode(int pid, int exitCode) {
+        synchronized (EXIT_CODES) {
+            EXIT_CODES.put(pid, exitCode);
+        }
+    }
+
+    private static void removeExitCode(int pid, int expected) {
+        synchronized (EXIT_CODES) {
+            Integer current = EXIT_CODES.get(pid);
+            if (current != null && current == expected) {
+                EXIT_CODES.remove(pid);
+            }
+        }
+    }
+
     private void createHost(
             String[] args,
             String[] env,
@@ -64,7 +101,7 @@ public abstract class RishService {
                 return;
             }
             EXIT_CODES.remove(callingPid);
-            RishHost current = HOSTS.remove(callingPid);
+            RishHost current = removeHost(callingPid);
             if (current != null) {
                 current.destroy();
             }
@@ -94,15 +131,11 @@ public abstract class RishService {
                         return;
                     }
                     EXIT_CODES.remove(callingPid);
-                    RishHost old = HOSTS.put(callingPid, host);
+                    RishHost old = putHost(callingPid, host);
                     host.setExitCleanup(() -> {
-                        HOSTS.computeIfPresent(callingPid, (ignored, current) -> {
-                            if (current != host) {
-                                return current;
-                            }
-                            EXIT_CODES.put(callingPid, host.getExitCode());
-                            return null;
-                        });
+                        if (removeHost(callingPid, host)) {
+                            putExitCode(callingPid, host.getExitCode());
+                        }
                     });
                     capabilityPublished.set(true);
                     if (old != null) {
@@ -131,7 +164,7 @@ public abstract class RishService {
 
     public void revokeHostForClient(int callingPid) {
         EXIT_CODES.remove(callingPid);
-        RishHost host = HOSTS.remove(callingPid);
+        RishHost host = removeHost(callingPid);
         if (host != null) {
             host.destroy();
             Log.i(TAG, "Revoked host created by " + callingPid);
@@ -165,8 +198,8 @@ public abstract class RishService {
 
         int exitCode = host.getExitCode();
         if (exitCode != Integer.MAX_VALUE) {
-            HOSTS.remove(callingPid, host);
-            EXIT_CODES.remove(callingPid, exitCode);
+            removeHost(callingPid, host);
+            removeExitCode(callingPid, exitCode);
         }
         return exitCode;
     }
