@@ -424,7 +424,11 @@ public abstract class Service<
             boolean committed;
             try {
                 committed = finishCapabilityCreation(
-                        "remote-process", callingUid, callingPid, capabilityEpoch, () -> remoteProcessHolders
+                        "remote-process",
+                        callingUid,
+                        callingPid,
+                        capabilityEpoch,
+                        () -> remoteProcessHolders
                                 .computeIfAbsent(callingUid, ignored -> ConcurrentHashMap.newKeySet())
                                 .add(candidate));
             } finally {
