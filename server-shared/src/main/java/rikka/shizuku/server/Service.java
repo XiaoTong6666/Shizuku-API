@@ -14,8 +14,11 @@ import androidx.annotation.Nullable;
 import java.io.File;
 import java.io.IOException;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import moe.shizuku.server.IRemoteProcess;
 import moe.shizuku.server.IShizukuApplication;
 import moe.shizuku.server.IShizukuService;
@@ -147,12 +150,17 @@ public abstract class Service<
     protected void abortCapabilityCreation(String kind, int uid, int pid, long epoch) {}
 
     protected final boolean hasRemoteProcessesForUid(int uid) {
-        Set<RemoteProcessHolder> holders = remoteProcessHolders.get(uid);
-        return holders != null && !holders.isEmpty();
+        synchronized (remoteProcessHolders) {
+            Set<RemoteProcessHolder> holders = remoteProcessHolders.get(uid);
+            return holders != null && !holders.isEmpty();
+        }
     }
 
     protected final void revokeRemoteProcessesForUid(int uid) {
-        Set<RemoteProcessHolder> holders = remoteProcessHolders.remove(uid);
+        Set<RemoteProcessHolder> holders;
+        synchronized (remoteProcessHolders) {
+            holders = remoteProcessHolders.remove(uid);
+        }
         if (holders == null) {
             return;
         }
@@ -161,6 +169,32 @@ public abstract class Service<
                 holder.destroy();
             } catch (Throwable e) {
                 LOGGER.w(e, "failed to revoke remote process for uid %d", uid);
+            }
+        }
+    }
+
+    private void addRemoteProcessHolder(int uid, RemoteProcessHolder holder, AtomicBoolean destroyed) {
+        synchronized (remoteProcessHolders) {
+            if (destroyed.get()) {
+                return;
+            }
+            Set<RemoteProcessHolder> holders = remoteProcessHolders.get(uid);
+            if (holders == null) {
+                holders = Collections.newSetFromMap(new ConcurrentHashMap<RemoteProcessHolder, Boolean>());
+                remoteProcessHolders.put(uid, holders);
+            }
+            holders.add(holder);
+        }
+    }
+
+    private void removeRemoteProcessHolder(int uid, RemoteProcessHolder holder) {
+        synchronized (remoteProcessHolders) {
+            Set<RemoteProcessHolder> holders = remoteProcessHolders.get(uid);
+            if (holders != null) {
+                holders.remove(holder);
+                if (holders.isEmpty()) {
+                    remoteProcessHolders.remove(uid);
+                }
             }
         }
     }
@@ -408,18 +442,16 @@ public abstract class Service<
             }
             java.lang.Process process = Runtime.getRuntime().exec(actualCmd, env, dir != null ? new File(dir) : null);
 
-            final RemoteProcessHolder[] holderRef = new RemoteProcessHolder[1];
+            AtomicBoolean holderDestroyed = new AtomicBoolean();
+            AtomicReference<RemoteProcessHolder> holderRef = new AtomicReference<>();
             holder = new RemoteProcessHolder(process, token, processGroup, () -> {
-                Set<RemoteProcessHolder> holders = remoteProcessHolders.get(callingUid);
-                RemoteProcessHolder current = holderRef[0];
-                if (holders != null && current != null) {
-                    holders.remove(current);
-                    if (holders.isEmpty()) {
-                        remoteProcessHolders.remove(callingUid, holders);
-                    }
+                holderDestroyed.set(true);
+                RemoteProcessHolder current = holderRef.get();
+                if (current != null) {
+                    removeRemoteProcessHolder(callingUid, current);
                 }
             });
-            holderRef[0] = holder;
+            holderRef.set(holder);
             RemoteProcessHolder candidate = holder;
             boolean committed;
             try {
@@ -428,9 +460,7 @@ public abstract class Service<
                         callingUid,
                         callingPid,
                         capabilityEpoch,
-                        () -> remoteProcessHolders
-                                .computeIfAbsent(callingUid, ignored -> ConcurrentHashMap.newKeySet())
-                                .add(candidate));
+                        () -> addRemoteProcessHolder(callingUid, candidate, holderDestroyed));
             } finally {
                 // finishCapabilityCreation owns and consumes the epoch lease once invoked,
                 // including its rejection and exceptional paths.
