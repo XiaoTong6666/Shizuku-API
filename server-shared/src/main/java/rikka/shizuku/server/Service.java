@@ -248,27 +248,25 @@ public abstract class Service<
                 "transact: uid=%d, descriptor=%s, code=%d",
                 Binder.getCallingUid(), targetBinder.getInterfaceDescriptor(), targetCode);
 
-        if (targetBinder instanceof Binder) {
-            long id = Binder.clearCallingIdentity();
-            try {
-                targetBinder.transact(targetCode, data, reply, targetFlags);
-            } finally {
-                Binder.restoreCallingIdentity(id);
-            }
-            return;
-        }
-
+        // Strip the Shizuku target binder/code/flags header for every target,
+        // including local Java Binder. Binder.transact resets dataPosition to 0,
+        // so passing the original Parcel would make onTransact read that header.
         Parcel newData = Parcel.obtain();
         try {
-            newData.appendFrom(data, data.dataPosition(), data.dataAvail());
-        } catch (Throwable tr) {
-            LOGGER.w(tr, "appendFrom");
-            return;
-        }
-        try {
+            try {
+                newData.appendFrom(data, data.dataPosition(), data.dataAvail());
+            } catch (Throwable tr) {
+                LOGGER.w(tr, "appendFrom");
+                return;
+            }
             long id = Binder.clearCallingIdentity();
-            targetBinder.transact(targetCode, newData, reply, targetFlags);
-            Binder.restoreCallingIdentity(id);
+            try {
+                targetBinder.transact(targetCode, newData, reply, targetFlags);
+            } finally {
+                // A target onTransact may throw; never leak its cleared identity
+                // into subsequent Binder calls handled by this thread.
+                Binder.restoreCallingIdentity(id);
+            }
         } finally {
             newData.recycle();
         }

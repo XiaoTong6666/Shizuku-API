@@ -32,10 +32,12 @@ public class Sui {
         return null;
     }
 
-    private static boolean isSui;
+    private static volatile boolean isSui;
 
     public static boolean isSui() {
-        return isSui;
+        // A dead Sui binder must not prevent ShizukuProvider from accepting
+        // an ordinary Shizuku binder after the Sui server has exited.
+        return isSui && Shizuku.pingBinder();
     }
 
     /**
@@ -48,8 +50,11 @@ public class Sui {
         IBinder binder = requestBinder();
         if (binder != null) {
             Shizuku.onBinderReceived(binder, packageName);
-            isSui = true;
-            return true;
+            // onBinderReceived may reject a binder that died before publication.
+            // A non-null bridge reply alone does not mean Sui was initialized.
+            boolean installed = Shizuku.getBinder() == binder && binder.pingBinder();
+            isSui = installed;
+            return installed;
         }
         isSui = false;
         return false;

@@ -31,6 +31,7 @@ import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Objects;
+import java.util.concurrent.atomic.AtomicBoolean;
 import moe.shizuku.server.IShizukuApplication;
 import moe.shizuku.server.IShizukuService;
 
@@ -66,8 +67,16 @@ public class Shizuku {
             IBinder expectedBinder = null;
             long expectedGeneration = 0;
             synchronized (BINDER_LOCK) {
+                // bindApplication is oneway: the reply may arrive before the candidate
+                // binder is committed. Keep it pending instead of rejecting the handoff.
                 if (generation != 0 && generation == pendingBinderGeneration && pendingBinder != null) {
                     pendingBindApplicationData = new Bundle(data);
+                    return;
+                }
+                // A late reply from the old server must not revive its permissions
+                // after a Sui Root/Shell handoff. While pending, the old binder is
+                // still current, so preserve its normal Shizuku callback semantics.
+                if (generation == 0 && binderGeneration != 0) {
                     return;
                 }
                 if (generation != 0 && generation != binderGeneration) {
@@ -126,8 +135,12 @@ public class Shizuku {
         preV11 = false;
     }
 
-    private static IBinder.DeathRecipient newDeathRecipient(IBinder watchedBinder, long generation) {
+    private static IBinder.DeathRecipient newDeathRecipient(
+            IBinder watchedBinder, long generation, AtomicBoolean died) {
         return () -> {
+            // Record death even when the binder is still pending. The current-binder
+            // identity check alone would discard a death before publication.
+            died.set(true);
             boolean notify = false;
             synchronized (BINDER_LOCK) {
                 if (binder != watchedBinder || binderGeneration != generation) {
@@ -206,9 +219,12 @@ public class Shizuku {
         synchronized (HANDOFF_LOCK) {
             synchronized (BINDER_LOCK) {
                 if (generation <= lastHandoffGeneration) {
-                    return binder == newBinder;
+                    return binder == newBinder && newBinder.pingBinder();
                 }
                 if (binder == newBinder) {
+                    if (!newBinder.pingBinder()) {
+                        return false;
+                    }
                     lastHandoffGeneration = generation;
                     Shizuku.packageName = requestPackageName;
                     return true;
@@ -218,7 +234,8 @@ public class Shizuku {
                 pendingBindApplicationData = null;
             }
 
-            IBinder.DeathRecipient candidateDeathRecipient = newDeathRecipient(newBinder, generation);
+            AtomicBoolean candidateDied = new AtomicBoolean();
+            IBinder.DeathRecipient candidateDeathRecipient = newDeathRecipient(newBinder, generation, candidateDied);
             try {
                 newBinder.linkToDeath(candidateDeathRecipient, 0);
             } catch (Throwable e) {
@@ -240,7 +257,9 @@ public class Shizuku {
                 Log.w("ShizukuApplication", "failed to attach replacement binder", e);
             }
 
-            if (!attached || !newBinder.pingBinder()) {
+            // Do not publish a binder whose death callback fired during attach.
+            // pingBinder alone is not enough when the callback races with commit.
+            if (!attached || candidateDied.get() || !newBinder.pingBinder()) {
                 newBinder.unlinkToDeath(candidateDeathRecipient, 0);
                 synchronized (BINDER_LOCK) {
                     if (pendingBinderGeneration == generation && pendingBinder == newBinder) {
@@ -256,11 +275,22 @@ public class Shizuku {
             IBinder.DeathRecipient oldDeathRecipient;
             Bundle bindData;
             synchronized (BINDER_LOCK) {
-                if (generation <= lastHandoffGeneration
+                // Recheck under the publication lock. If death happens after this
+                // check, its callback waits for the lock and clears the new binder.
+                if (candidateDied.get()
+                        || !newBinder.pingBinder()
+                        || generation <= lastHandoffGeneration
                         || pendingBinderGeneration != generation
                         || pendingBinder != newBinder) {
                     newBinder.unlinkToDeath(candidateDeathRecipient, 0);
-                    return binder == newBinder;
+                    if (pendingBinderGeneration == generation && pendingBinder == newBinder) {
+                        pendingBinderGeneration = 0;
+                        pendingBinder = null;
+                        pendingBindApplicationData = null;
+                    }
+                    // An uncommitted candidate is never a successful handoff,
+                    // even if a concurrent provider callback installed the same binder.
+                    return false;
                 }
 
                 oldBinder = binder;
@@ -273,6 +303,8 @@ public class Shizuku {
                 Shizuku.packageName = requestPackageName;
                 resetServerStateLocked();
 
+                // Keep both oneway reply orders valid: apply an early reply here,
+                // or let bindApplication apply a matching late reply afterwards.
                 bindData = pendingBindApplicationData;
                 pendingBinderGeneration = 0;
                 pendingBinder = null;
@@ -307,7 +339,8 @@ public class Shizuku {
                 service = null;
                 binderDeathRecipient = null;
                 binderGeneration = 0;
-                lastHandoffGeneration = 0;
+                // Keep the last handoff generation even across ordinary disconnects.
+                // A delayed dispatchServerBinder must not replay an older transition.
                 resetServerStateLocked();
             }
             if (oldDeathRecipient != null) {
@@ -317,7 +350,8 @@ public class Shizuku {
         } else {
             IBinder oldBinder;
             IBinder.DeathRecipient oldDeathRecipient;
-            IBinder.DeathRecipient candidateDeathRecipient = newDeathRecipient(newBinder, 0);
+            AtomicBoolean candidateDied = new AtomicBoolean();
+            IBinder.DeathRecipient candidateDeathRecipient = newDeathRecipient(newBinder, 0, candidateDied);
             try {
                 newBinder.linkToDeath(candidateDeathRecipient, 0);
             } catch (Throwable e) {
@@ -326,11 +360,23 @@ public class Shizuku {
             }
 
             synchronized (BINDER_LOCK) {
+                // Also cover the ordinary Shizuku provider path: a binder can die
+                // between linkToDeath and being installed as the current binder.
+                if (candidateDied.get() || !newBinder.pingBinder()) {
+                    newBinder.unlinkToDeath(candidateDeathRecipient, 0);
+                    return;
+                }
                 if (binder == newBinder) {
                     newBinder.unlinkToDeath(candidateDeathRecipient, 0);
                     if (packageName != null) {
                         Shizuku.packageName = packageName;
                     }
+                    return;
+                }
+                // Provider broadcasts are not generation-aware. A stale broadcast
+                // must not replace a living binder installed by Sui handoff.
+                if (binderGeneration != 0 && binder != null && binder.pingBinder()) {
+                    newBinder.unlinkToDeath(candidateDeathRecipient, 0);
                     return;
                 }
                 oldBinder = binder;
@@ -339,7 +385,8 @@ public class Shizuku {
                 service = IShizukuService.Stub.asInterface(newBinder);
                 binderDeathRecipient = candidateDeathRecipient;
                 binderGeneration = 0;
-                lastHandoffGeneration = 0;
+                // Handoff generations are based on monotonic elapsed time. Do not
+                // reset the replay fence when a legacy/provider binder arrives.
                 if (packageName != null) {
                     Shizuku.packageName = packageName;
                 }
@@ -349,16 +396,25 @@ public class Shizuku {
                 oldBinder.unlinkToDeath(oldDeathRecipient, 0);
             }
 
+            boolean isPreV11 = false;
             try {
                 if (!attachApplicationV13(newBinder, packageName) && !attachApplicationV11(newBinder, packageName)) {
-                    preV11 = true;
+                    isPreV11 = true;
                 }
                 Log.i("ShizukuApplication", "attachApplication");
             } catch (Throwable e) {
                 Log.w("ShizukuApplication", Log.getStackTraceString(e));
             }
 
-            if (preV11) {
+            if (isPreV11) {
+                synchronized (BINDER_LOCK) {
+                    // An old attach attempt must not change preV11 after a new
+                    // binder has replaced it.
+                    if (binder != newBinder || binderGeneration != 0) {
+                        return;
+                    }
+                    preV11 = true;
+                }
                 scheduleBinderReceivedListeners(newBinder, 0);
             }
         }
