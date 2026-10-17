@@ -116,7 +116,7 @@ public class RishTerminal {
             data.writeInterfaceToken(RishConfig.getInterfaceToken());
             data.writeLong(size);
             RishConfig.getBinder()
-                    .transact(RishConfig.getTransactionCode(RishConfig.TRANSACTION_setWindowSize), data, null, 0);
+                    .transact(RishConfig.getTransactionCode(RishConfig.TRANSACTION_setWindowSize), data, reply, 0);
             reply.readException();
         } finally {
             data.recycle();
@@ -133,7 +133,7 @@ public class RishTerminal {
         try {
             data.writeInterfaceToken(RishConfig.getInterfaceToken());
             RishConfig.getBinder()
-                    .transact(RishConfig.getTransactionCode(RishConfig.TRANSACTION_getExitCode), data, null, 0);
+                    .transact(RishConfig.getTransactionCode(RishConfig.TRANSACTION_getExitCode), data, reply, 0);
             reply.readException();
             return reply.readInt();
         } finally {
