@@ -1,0 +1,13 @@
+# Shizuku-API JitPack build
+# Upstream :demo (and :rish) require an NDK license JitPack can't accept, so the
+# full-module settings.gradle.kts fails JitPack's initial `./gradlew tasks` scan.
+# We only need the publishable client modules; drop the rest BEFORE Gradle runs.
+jdk:
+  - openjdk21
+
+before_install:
+  - sed -i 's/, ":demo", ":demo-hidden-api-stub"//' settings.gradle.kts
+  - grep include settings.gradle.kts
+
+install:
+  - ./gradlew -x lint -x test publishToMavenLocal
