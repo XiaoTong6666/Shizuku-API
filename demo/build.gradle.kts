@@ -14,15 +14,17 @@ android {
         versionName = apiVersionName
 
         externalNativeBuild {
-            ndkBuild {
-                arguments += "-j${Runtime.getRuntime().availableProcessors()}"
+            cmake {
+                abiFilters += listOf("armeabi-v7a", "arm64-v8a", "x86", "x86_64")
+                cppFlags += listOf("-std=c++17")
+                arguments += listOf("-DANDROID_TOOLCHAIN=clang", "-DANDROID_STL=c++_static")
             }
         }
     }
 
     externalNativeBuild {
-        ndkBuild {
-            path = file("src/main/cpp/Android.mk")
+        cmake {
+            path = file("src/main/cpp/CMakeLists.txt")
         }
     }
 

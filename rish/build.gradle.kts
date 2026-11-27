@@ -7,8 +7,8 @@ android {
 
     defaultConfig {
         externalNativeBuild {
-            ndkBuild {
-                arguments += "-j${Runtime.getRuntime().availableProcessors()}"
+            cmake {
+                arguments += listOf("-DANDROID_STL=c++_static")
             }
         }
     }
@@ -24,13 +24,10 @@ android {
         targetCompatibility = JavaVersion.VERSION_21
     }
 
-    buildFeatures {
-        prefab = true
-    }
-
     externalNativeBuild {
-        ndkBuild {
-            path = file("src/main/cpp/Android.mk")
+        cmake {
+            path = file("src/main/cpp/CMakeLists.txt")
+            version = "3.31.0+"
         }
     }
 }
@@ -38,7 +35,6 @@ android {
 dependencies {
     implementation(project(":api"))
     implementation(libs.androidx.annotation)
-    implementation("org.lsposed.libcxx:libcxx:30.0.16248370")
 }
 
 extra["publishLibrary"] = false
