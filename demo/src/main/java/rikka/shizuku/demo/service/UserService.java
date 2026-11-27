@@ -4,9 +4,7 @@ import android.content.Context;
 import android.os.RemoteException;
 import android.system.Os;
 import android.util.Log;
-
 import androidx.annotation.Keep;
-
 import rikka.shizuku.demo.IUserService;
 
 public class UserService extends IUserService.Stub {

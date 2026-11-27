@@ -1,4 +1,3 @@
 package android.os;
 
-public class Parcel {
-}
+public class Parcel {}

@@ -1,4 +1,3 @@
 package android.content.pm;
 
-public class ParceledListSlice<T> extends BaseParceledListSlice<T> {
-}
+public class ParceledListSlice<T> extends BaseParceledListSlice<T> {}

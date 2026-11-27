@@ -1,4 +1,3 @@
 package android.os;
 
-public class Bundle {
-}
+public class Bundle {}

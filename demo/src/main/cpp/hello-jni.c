@@ -24,31 +24,32 @@
  *
  *   hello-jni/app/src/main/java/com/example/hellojni/HelloJni.java
  */
-JNIEXPORT jstring JNICALL
-Java_rikka_shizuku_demo_service_UserService_stringFromJNI(JNIEnv *env, jclass) {
+JNIEXPORT jstring JNICALL Java_rikka_shizuku_demo_service_UserService_stringFromJNI(JNIEnv* env,
+                                                                                    jclass clazz) {
+    (void) clazz;
 #if defined(__arm__)
-    #if defined(__ARM_ARCH_7A__)
-    #if defined(__ARM_NEON__)
-      #if defined(__ARM_PCS_VFP)
-        #define ABI "armeabi-v7a/NEON (hard-float)"
-      #else
-        #define ABI "armeabi-v7a/NEON"
-      #endif
-    #else
-      #if defined(__ARM_PCS_VFP)
-        #define ABI "armeabi-v7a (hard-float)"
-      #else
-        #define ABI "armeabi-v7a"
-      #endif
-    #endif
-  #else
-   #define ABI "armeabi"
-  #endif
+#if defined(__ARM_ARCH_7A__)
+#if defined(__ARM_NEON__)
+#if defined(__ARM_PCS_VFP)
+#define ABI "armeabi-v7a/NEON (hard-float)"
+#else
+#define ABI "armeabi-v7a/NEON"
+#endif
+#else
+#if defined(__ARM_PCS_VFP)
+#define ABI "armeabi-v7a (hard-float)"
+#else
+#define ABI "armeabi-v7a"
+#endif
+#endif
+#else
+#define ABI "armeabi"
+#endif
 #elif defined(__i386__)
 #define ABI "x86"
 #elif defined(__x86_64__)
-    #define ABI "x86_64"
-#elif defined(__mips64)  /* mips64el-* toolchain defines __mips__ too */
+#define ABI "x86_64"
+#elif defined(__mips64) /* mips64el-* toolchain defines __mips__ too */
 #define ABI "mips64"
 #elif defined(__mips__)
 #define ABI "mips"
@@ -61,7 +62,8 @@ Java_rikka_shizuku_demo_service_UserService_stringFromJNI(JNIEnv *env, jclass) {
     return (*env)->NewStringUTF(env, "Hello from JNI !  Compiled with ABI " ABI ".");
 }
 
-jstring get_context(JNIEnv *env, jclass) {
+jstring get_context(JNIEnv *env, jclass clazz) {
+    (void) clazz;
     char context[1024];
     ssize_t size = getxattr("/proc/self", "security.selinux", context, sizeof(context) - 1);
     if (size < 0) {
