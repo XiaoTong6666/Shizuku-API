@@ -2,7 +2,10 @@ package rikka.shizuku;
 
 import static androidx.annotation.RestrictTo.Scope.LIBRARY_GROUP_PREFIX;
 import static rikka.shizuku.ShizukuApiConstants.ATTACH_APPLICATION_API_VERSION;
+import static rikka.shizuku.ShizukuApiConstants.ATTACH_APPLICATION_BINDER_GENERATION;
 import static rikka.shizuku.ShizukuApiConstants.ATTACH_APPLICATION_PACKAGE_NAME;
+import static rikka.shizuku.ShizukuApiConstants.ATTACH_APPLICATION_SUPPORTS_SERVER_BINDER_HANDOFF;
+import static rikka.shizuku.ShizukuApiConstants.BIND_APPLICATION_BINDER_GENERATION;
 import static rikka.shizuku.ShizukuApiConstants.BIND_APPLICATION_PERMISSION_GRANTED;
 import static rikka.shizuku.ShizukuApiConstants.BIND_APPLICATION_SERVER_PATCH_VERSION;
 import static rikka.shizuku.ShizukuApiConstants.BIND_APPLICATION_SERVER_SECONTEXT;
@@ -21,69 +24,152 @@ import android.os.Looper;
 import android.os.Parcel;
 import android.os.RemoteException;
 import android.util.Log;
-
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.annotation.RestrictTo;
-
 import java.util.ArrayList;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Objects;
-
+import java.util.concurrent.atomic.AtomicBoolean;
 import moe.shizuku.server.IShizukuApplication;
 import moe.shizuku.server.IShizukuService;
 
 public class Shizuku {
 
-    private static IBinder binder;
-    private static IShizukuService service;
+    private static final Object BINDER_LOCK = new Object();
+    private static final Object HANDOFF_LOCK = new Object();
 
-    private static int serverUid = -1;
-    private static int serverApiVersion = -1;
-    private static int serverPatchVersion = -1;
-    private static String serverContext = null;
-    private static boolean permissionGranted = false;
-    private static boolean shouldShowRequestPermissionRationale = false;
-    private static boolean preV11 = false;
-    private static boolean binderReady = false;
+    private static volatile IBinder binder;
+    private static volatile IShizukuService service;
+    private static IBinder.DeathRecipient binderDeathRecipient;
+    private static long binderGeneration;
+    private static long lastHandoffGeneration;
+    private static long pendingBinderGeneration;
+    private static IBinder pendingBinder;
+    private static Bundle pendingBindApplicationData;
+
+    private static volatile int serverUid = -1;
+    private static volatile int serverApiVersion = -1;
+    private static volatile int serverPatchVersion = -1;
+    private static volatile String serverContext = null;
+    private static volatile boolean permissionGranted = false;
+    private static volatile boolean shouldShowRequestPermissionRationale = false;
+    private static volatile boolean preV11 = false;
+    private static volatile boolean binderReady = false;
+    private static volatile String packageName;
 
     private static final IShizukuApplication SHIZUKU_APPLICATION = new IShizukuApplication.Stub() {
 
         @Override
         public void bindApplication(Bundle data) {
-            serverUid = data.getInt(BIND_APPLICATION_SERVER_UID, -1);
-            serverApiVersion = data.getInt(BIND_APPLICATION_SERVER_VERSION, -1);
-            serverPatchVersion = data.getInt(BIND_APPLICATION_SERVER_PATCH_VERSION, -1);
-            serverContext = data.getString(BIND_APPLICATION_SERVER_SECONTEXT);
-            permissionGranted = data.getBoolean(BIND_APPLICATION_PERMISSION_GRANTED, false);
-            shouldShowRequestPermissionRationale = data.getBoolean(BIND_APPLICATION_SHOULD_SHOW_REQUEST_PERMISSION_RATIONALE, false);
-
-            scheduleBinderReceivedListeners();
+            long generation = data.getLong(BIND_APPLICATION_BINDER_GENERATION, 0);
+            IBinder expectedBinder = null;
+            long expectedGeneration = 0;
+            synchronized (BINDER_LOCK) {
+                // bindApplication is oneway: the reply may arrive before the candidate
+                // binder is committed. Keep it pending instead of rejecting the handoff.
+                if (generation != 0 && generation == pendingBinderGeneration && pendingBinder != null) {
+                    pendingBindApplicationData = new Bundle(data);
+                    return;
+                }
+                // A late reply from the old server must not revive its permissions
+                // after a Sui Root/Shell handoff. While pending, the old binder is
+                // still current, so preserve its normal Shizuku callback semantics.
+                if (generation == 0 && binderGeneration != 0) {
+                    return;
+                }
+                if (generation != 0 && generation != binderGeneration) {
+                    return;
+                }
+                if (binder == null) {
+                    return;
+                }
+                applyBindApplicationDataLocked(data);
+                expectedBinder = binder;
+                expectedGeneration = binderGeneration;
+            }
+            if (expectedBinder != null) {
+                scheduleBinderReceivedListeners(expectedBinder, expectedGeneration);
+            }
         }
 
         @Override
         public void dispatchRequestPermissionResult(int requestCode, Bundle data) {
             boolean allowed = data.getBoolean(REQUEST_PERMISSION_REPLY_ALLOWED, false);
-            scheduleRequestPermissionResultListener(requestCode, allowed ? PackageManager.PERMISSION_GRANTED : PackageManager.PERMISSION_DENIED);
+            scheduleRequestPermissionResultListener(
+                    requestCode, allowed ? PackageManager.PERMISSION_GRANTED : PackageManager.PERMISSION_DENIED);
         }
 
         @Override
-        public void showPermissionConfirmation(int requestUid, int requestPid, String requestPackageName, int requestCode) {
+        public boolean dispatchServerBinder(IBinder newBinder, String requestPackageName, long generation) {
+            return switchServerBinder(
+                    newBinder, requestPackageName != null ? requestPackageName : packageName, generation);
+        }
+
+        @Override
+        public void showPermissionConfirmation(
+                int requestUid, int requestPid, String requestPackageName, int requestCode) {
             // non-app
         }
     };
 
-    private static final IBinder.DeathRecipient DEATH_RECIPIENT = () -> {
-        binderReady = false;
-        onBinderReceived(null, null);
-    };
+    private static void applyBindApplicationDataLocked(Bundle data) {
+        serverUid = data.getInt(BIND_APPLICATION_SERVER_UID, -1);
+        serverApiVersion = data.getInt(BIND_APPLICATION_SERVER_VERSION, -1);
+        serverPatchVersion = data.getInt(BIND_APPLICATION_SERVER_PATCH_VERSION, -1);
+        serverContext = data.getString(BIND_APPLICATION_SERVER_SECONTEXT);
+        permissionGranted = data.getBoolean(BIND_APPLICATION_PERMISSION_GRANTED, false);
+        shouldShowRequestPermissionRationale =
+                data.getBoolean(BIND_APPLICATION_SHOULD_SHOW_REQUEST_PERMISSION_RATIONALE, false);
+    }
 
-    private static boolean attachApplicationV13(IBinder binder, String packageName) throws RemoteException {
+    private static void resetServerStateLocked() {
+        binderReady = false;
+        serverUid = -1;
+        serverApiVersion = -1;
+        serverPatchVersion = -1;
+        serverContext = null;
+        permissionGranted = false;
+        shouldShowRequestPermissionRationale = false;
+        preV11 = false;
+    }
+
+    private static IBinder.DeathRecipient newDeathRecipient(
+            IBinder watchedBinder, long generation, AtomicBoolean died) {
+        return () -> {
+            // Record death even when the binder is still pending. The current-binder
+            // identity check alone would discard a death before publication.
+            died.set(true);
+            boolean notify = false;
+            synchronized (BINDER_LOCK) {
+                if (binder != watchedBinder || binderGeneration != generation) {
+                    return;
+                }
+                binder = null;
+                service = null;
+                binderDeathRecipient = null;
+                binderGeneration = 0;
+                resetServerStateLocked();
+                notify = true;
+            }
+            if (notify) {
+                scheduleBinderDeadListeners();
+            }
+        };
+    }
+
+    private static boolean attachApplicationV13(IBinder binder, String packageName, long generation)
+            throws RemoteException {
         boolean result;
 
         Bundle args = new Bundle();
         args.putInt(ATTACH_APPLICATION_API_VERSION, ShizukuApiConstants.SERVER_VERSION);
         args.putString(ATTACH_APPLICATION_PACKAGE_NAME, packageName);
+        args.putBoolean(ATTACH_APPLICATION_SUPPORTS_SERVER_BINDER_HANDOFF, true);
+        if (generation != 0) {
+            args.putLong(ATTACH_APPLICATION_BINDER_GENERATION, generation);
+        }
 
         Parcel data = Parcel.obtain();
         Parcel reply = Parcel.obtain();
@@ -100,6 +186,10 @@ public class Shizuku {
         }
 
         return result;
+    }
+
+    private static boolean attachApplicationV13(IBinder binder, String packageName) throws RemoteException {
+        return attachApplicationV13(binder, packageName, 0);
     }
 
     private static boolean attachApplicationV11(IBinder binder, String packageName) throws RemoteException {
@@ -121,43 +211,211 @@ public class Shizuku {
         return result;
     }
 
+    private static boolean switchServerBinder(IBinder newBinder, String requestPackageName, long generation) {
+        if (newBinder == null || requestPackageName == null || generation <= 0) {
+            return false;
+        }
+
+        synchronized (HANDOFF_LOCK) {
+            synchronized (BINDER_LOCK) {
+                if (generation <= lastHandoffGeneration) {
+                    return binder == newBinder && newBinder.pingBinder();
+                }
+                if (binder == newBinder) {
+                    if (!newBinder.pingBinder()) {
+                        return false;
+                    }
+                    lastHandoffGeneration = generation;
+                    Shizuku.packageName = requestPackageName;
+                    return true;
+                }
+                pendingBinderGeneration = generation;
+                pendingBinder = newBinder;
+                pendingBindApplicationData = null;
+            }
+
+            AtomicBoolean candidateDied = new AtomicBoolean();
+            IBinder.DeathRecipient candidateDeathRecipient = newDeathRecipient(newBinder, generation, candidateDied);
+            try {
+                newBinder.linkToDeath(candidateDeathRecipient, 0);
+            } catch (Throwable e) {
+                synchronized (BINDER_LOCK) {
+                    if (pendingBinderGeneration == generation && pendingBinder == newBinder) {
+                        pendingBinderGeneration = 0;
+                        pendingBinder = null;
+                        pendingBindApplicationData = null;
+                    }
+                }
+                Log.w("ShizukuApplication", "candidate binder is already dead", e);
+                return false;
+            }
+
+            boolean attached = false;
+            try {
+                attached = attachApplicationV13(newBinder, requestPackageName, generation);
+            } catch (Throwable e) {
+                Log.w("ShizukuApplication", "failed to attach replacement binder", e);
+            }
+
+            // Do not publish a binder whose death callback fired during attach.
+            // pingBinder alone is not enough when the callback races with commit.
+            if (!attached || candidateDied.get() || !newBinder.pingBinder()) {
+                newBinder.unlinkToDeath(candidateDeathRecipient, 0);
+                synchronized (BINDER_LOCK) {
+                    if (pendingBinderGeneration == generation && pendingBinder == newBinder) {
+                        pendingBinderGeneration = 0;
+                        pendingBinder = null;
+                        pendingBindApplicationData = null;
+                    }
+                }
+                return false;
+            }
+
+            IBinder oldBinder;
+            IBinder.DeathRecipient oldDeathRecipient;
+            Bundle bindData;
+            synchronized (BINDER_LOCK) {
+                // Recheck under the publication lock. If death happens after this
+                // check, its callback waits for the lock and clears the new binder.
+                if (candidateDied.get()
+                        || !newBinder.pingBinder()
+                        || generation <= lastHandoffGeneration
+                        || pendingBinderGeneration != generation
+                        || pendingBinder != newBinder) {
+                    newBinder.unlinkToDeath(candidateDeathRecipient, 0);
+                    if (pendingBinderGeneration == generation && pendingBinder == newBinder) {
+                        pendingBinderGeneration = 0;
+                        pendingBinder = null;
+                        pendingBindApplicationData = null;
+                    }
+                    // An uncommitted candidate is never a successful handoff,
+                    // even if a concurrent provider callback installed the same binder.
+                    return false;
+                }
+
+                oldBinder = binder;
+                oldDeathRecipient = binderDeathRecipient;
+                binder = newBinder;
+                service = IShizukuService.Stub.asInterface(newBinder);
+                binderDeathRecipient = candidateDeathRecipient;
+                binderGeneration = generation;
+                lastHandoffGeneration = generation;
+                Shizuku.packageName = requestPackageName;
+                resetServerStateLocked();
+
+                // Keep both oneway reply orders valid: apply an early reply here,
+                // or let bindApplication apply a matching late reply afterwards.
+                bindData = pendingBindApplicationData;
+                pendingBinderGeneration = 0;
+                pendingBinder = null;
+                pendingBindApplicationData = null;
+                if (bindData != null) {
+                    applyBindApplicationDataLocked(bindData);
+                }
+            }
+
+            if (oldBinder != null && oldDeathRecipient != null) {
+                oldBinder.unlinkToDeath(oldDeathRecipient, 0);
+            }
+            if (bindData != null) {
+                scheduleBinderReceivedListeners(newBinder, generation);
+            }
+            return true;
+        }
+    }
+
     @RestrictTo(LIBRARY_GROUP_PREFIX)
     public static void onBinderReceived(@Nullable IBinder newBinder, String packageName) {
-        if (binder == newBinder) return;
-
         if (newBinder == null) {
-            binder = null;
-            service = null;
-            serverUid = -1;
-            serverApiVersion = -1;
-            serverContext = null;
-
+            IBinder oldBinder;
+            IBinder.DeathRecipient oldDeathRecipient;
+            synchronized (BINDER_LOCK) {
+                oldBinder = binder;
+                oldDeathRecipient = binderDeathRecipient;
+                if (oldBinder == null) {
+                    return;
+                }
+                binder = null;
+                service = null;
+                binderDeathRecipient = null;
+                binderGeneration = 0;
+                // Keep the last handoff generation even across ordinary disconnects.
+                // A delayed dispatchServerBinder must not replay an older transition.
+                resetServerStateLocked();
+            }
+            if (oldDeathRecipient != null) {
+                oldBinder.unlinkToDeath(oldDeathRecipient, 0);
+            }
             scheduleBinderDeadListeners();
         } else {
-            if (binder != null) {
-                binder.unlinkToDeath(DEATH_RECIPIENT, 0);
-            }
-            binder = newBinder;
-            service = IShizukuService.Stub.asInterface(newBinder);
-
+            IBinder oldBinder;
+            IBinder.DeathRecipient oldDeathRecipient;
+            AtomicBoolean candidateDied = new AtomicBoolean();
+            IBinder.DeathRecipient candidateDeathRecipient = newDeathRecipient(newBinder, 0, candidateDied);
             try {
-                binder.linkToDeath(DEATH_RECIPIENT, 0);
+                newBinder.linkToDeath(candidateDeathRecipient, 0);
             } catch (Throwable e) {
-                Log.i("ShizukuApplication", "attachApplication");
+                Log.w("ShizukuApplication", "received binder is already dead", e);
+                return;
             }
 
+            synchronized (BINDER_LOCK) {
+                // Also cover the ordinary Shizuku provider path: a binder can die
+                // between linkToDeath and being installed as the current binder.
+                if (candidateDied.get() || !newBinder.pingBinder()) {
+                    newBinder.unlinkToDeath(candidateDeathRecipient, 0);
+                    return;
+                }
+                if (binder == newBinder) {
+                    newBinder.unlinkToDeath(candidateDeathRecipient, 0);
+                    if (packageName != null) {
+                        Shizuku.packageName = packageName;
+                    }
+                    return;
+                }
+                // Provider broadcasts are not generation-aware. A stale broadcast
+                // must not replace a living binder installed by Sui handoff.
+                if (binderGeneration != 0 && binder != null && binder.pingBinder()) {
+                    newBinder.unlinkToDeath(candidateDeathRecipient, 0);
+                    return;
+                }
+                oldBinder = binder;
+                oldDeathRecipient = binderDeathRecipient;
+                binder = newBinder;
+                service = IShizukuService.Stub.asInterface(newBinder);
+                binderDeathRecipient = candidateDeathRecipient;
+                binderGeneration = 0;
+                // Handoff generations are based on monotonic elapsed time. Do not
+                // reset the replay fence when a legacy/provider binder arrives.
+                if (packageName != null) {
+                    Shizuku.packageName = packageName;
+                }
+                resetServerStateLocked();
+            }
+            if (oldBinder != null && oldDeathRecipient != null) {
+                oldBinder.unlinkToDeath(oldDeathRecipient, 0);
+            }
+
+            boolean isPreV11 = false;
             try {
-                if (!attachApplicationV13(binder, packageName) && !attachApplicationV11(binder, packageName)) {
-                    preV11 = true;
+                if (!attachApplicationV13(newBinder, packageName) && !attachApplicationV11(newBinder, packageName)) {
+                    isPreV11 = true;
                 }
                 Log.i("ShizukuApplication", "attachApplication");
             } catch (Throwable e) {
                 Log.w("ShizukuApplication", Log.getStackTraceString(e));
             }
 
-            if (preV11) {
-                binderReady = true;
-                scheduleBinderReceivedListeners();
+            if (isPreV11) {
+                synchronized (BINDER_LOCK) {
+                    // An old attach attempt must not change preV11 after a new
+                    // binder has replaced it.
+                    if (binder != newBinder || binderGeneration != 0) {
+                        return;
+                    }
+                    preV11 = true;
+                }
+                scheduleBinderReceivedListeners(newBinder, 0);
             }
         }
     }
@@ -208,7 +466,8 @@ public class Shizuku {
 
     private static final List<ListenerHolder<OnBinderReceivedListener>> RECEIVED_LISTENERS = new ArrayList<>();
     private static final List<ListenerHolder<OnBinderDeadListener>> DEAD_LISTENERS = new ArrayList<>();
-    private static final List<ListenerHolder<OnRequestPermissionResultListener>> PERMISSION_LISTENERS = new ArrayList<>();
+    private static final List<ListenerHolder<OnRequestPermissionResultListener>> PERMISSION_LISTENERS =
+            new ArrayList<>();
     private static final Handler MAIN_HANDLER = new Handler(Looper.getMainLooper());
 
     /**
@@ -245,7 +504,8 @@ public class Shizuku {
      * @param listener OnBinderReceivedListener
      * @param handler  Where the listener would be called. If null, the listener will be called in main thread.
      */
-    public static void addBinderReceivedListener(@NonNull OnBinderReceivedListener listener, @Nullable Handler handler) {
+    public static void addBinderReceivedListener(
+            @NonNull OnBinderReceivedListener listener, @Nullable Handler handler) {
         addBinderReceivedListener(Objects.requireNonNull(listener), false, handler);
     }
 
@@ -266,12 +526,19 @@ public class Shizuku {
      * @param listener OnBinderReceivedListener
      * @param handler  Where the listener would be called. If null, the listener will be called in main thread.
      */
-    public static void addBinderReceivedListenerSticky(@NonNull OnBinderReceivedListener listener, @Nullable Handler handler) {
+    public static void addBinderReceivedListenerSticky(
+            @NonNull OnBinderReceivedListener listener, @Nullable Handler handler) {
         addBinderReceivedListener(Objects.requireNonNull(listener), true, handler);
     }
 
-    private static void addBinderReceivedListener(@NonNull OnBinderReceivedListener listener, boolean sticky, @Nullable Handler handler) {
-        if (sticky && binderReady) {
+    private static void addBinderReceivedListener(
+            @NonNull OnBinderReceivedListener listener, boolean sticky, @Nullable Handler handler) {
+        boolean callImmediately = false;
+        synchronized (RECEIVED_LISTENERS) {
+            callImmediately = sticky && binderReady;
+            RECEIVED_LISTENERS.add(new ListenerHolder<>(listener, handler));
+        }
+        if (callImmediately) {
             if (handler != null) {
                 handler.post(listener::onBinderReceived);
             } else if (Looper.myLooper() == Looper.getMainLooper()) {
@@ -279,9 +546,6 @@ public class Shizuku {
             } else {
                 MAIN_HANDLER.post(listener::onBinderReceived);
             }
-        }
-        synchronized (RECEIVED_LISTENERS) {
-            RECEIVED_LISTENERS.add(new ListenerHolder<>(listener, handler));
         }
     }
 
@@ -294,25 +558,32 @@ public class Shizuku {
      */
     public static boolean removeBinderReceivedListener(@NonNull OnBinderReceivedListener listener) {
         synchronized (RECEIVED_LISTENERS) {
-            return RECEIVED_LISTENERS.removeIf(holder -> holder.listener == listener);
+            return removeListener(RECEIVED_LISTENERS, listener);
         }
     }
 
-    private static void scheduleBinderReceivedListeners() {
+    private static void scheduleBinderReceivedListeners(IBinder expectedBinder, long expectedGeneration) {
+        List<ListenerHolder<OnBinderReceivedListener>> listeners;
+        synchronized (BINDER_LOCK) {
+            if (binder != expectedBinder || binderGeneration != expectedGeneration || service == null) {
+                return;
+            }
+            binderReady = true;
+        }
         synchronized (RECEIVED_LISTENERS) {
-            for (ListenerHolder<OnBinderReceivedListener> holder : RECEIVED_LISTENERS) {
-                if (holder.handler != null) {
-                    holder.handler.post(holder.listener::onBinderReceived);
+            listeners = new ArrayList<>(RECEIVED_LISTENERS);
+        }
+        for (ListenerHolder<OnBinderReceivedListener> holder : listeners) {
+            if (holder.handler != null) {
+                holder.handler.post(holder.listener::onBinderReceived);
+            } else {
+                if (Looper.myLooper() == Looper.getMainLooper()) {
+                    holder.listener.onBinderReceived();
                 } else {
-                    if (Looper.myLooper() == Looper.getMainLooper()) {
-                        holder.listener.onBinderReceived();
-                    } else {
-                        MAIN_HANDLER.post(holder.listener::onBinderReceived);
-                    }
+                    MAIN_HANDLER.post(holder.listener::onBinderReceived);
                 }
             }
         }
-        binderReady = true;
     }
 
     /**
@@ -349,23 +620,24 @@ public class Shizuku {
      */
     public static boolean removeBinderDeadListener(@NonNull OnBinderDeadListener listener) {
         synchronized (RECEIVED_LISTENERS) {
-            return DEAD_LISTENERS.removeIf(holder -> holder.listener == listener);
+            return removeListener(DEAD_LISTENERS, listener);
         }
     }
 
     private static void scheduleBinderDeadListeners() {
+        List<ListenerHolder<OnBinderDeadListener>> listeners;
         synchronized (RECEIVED_LISTENERS) {
-            for (ListenerHolder<OnBinderDeadListener> holder : DEAD_LISTENERS) {
-                if (holder.handler != null) {
-                    holder.handler.post(holder.listener::onBinderDead);
+            listeners = new ArrayList<>(DEAD_LISTENERS);
+        }
+        for (ListenerHolder<OnBinderDeadListener> holder : listeners) {
+            if (holder.handler != null) {
+                holder.handler.post(holder.listener::onBinderDead);
+            } else {
+                if (Looper.myLooper() == Looper.getMainLooper()) {
+                    holder.listener.onBinderDead();
                 } else {
-                    if (Looper.myLooper() == Looper.getMainLooper()) {
-                        holder.listener.onBinderDead();
-                    } else {
-                        MAIN_HANDLER.post(holder.listener::onBinderDead);
-                    }
+                    MAIN_HANDLER.post(holder.listener::onBinderDead);
                 }
-
             }
         }
     }
@@ -390,7 +662,8 @@ public class Shizuku {
      * @param listener OnRequestPermissionResultListener
      * @param handler  Where the listener would be called. If null, the listener will be called in main thread.
      */
-    public static void addRequestPermissionResultListener(@NonNull OnRequestPermissionResultListener listener, @Nullable Handler handler) {
+    public static void addRequestPermissionResultListener(
+            @NonNull OnRequestPermissionResultListener listener, @Nullable Handler handler) {
         synchronized (RECEIVED_LISTENERS) {
             PERMISSION_LISTENERS.add(new ListenerHolder<>(listener, handler));
         }
@@ -404,28 +677,40 @@ public class Shizuku {
      */
     public static boolean removeRequestPermissionResultListener(@NonNull OnRequestPermissionResultListener listener) {
         synchronized (RECEIVED_LISTENERS) {
-            return PERMISSION_LISTENERS.removeIf(holder -> holder.listener == listener);
+            return removeListener(PERMISSION_LISTENERS, listener);
         }
     }
 
+    private static <T> boolean removeListener(@NonNull List<ListenerHolder<T>> listeners, @NonNull T listener) {
+        boolean removed = false;
+        for (Iterator<ListenerHolder<T>> iterator = listeners.iterator(); iterator.hasNext(); ) {
+            if (iterator.next().listener == listener) {
+                iterator.remove();
+                removed = true;
+            }
+        }
+        return removed;
+    }
+
     private static void scheduleRequestPermissionResultListener(int requestCode, int result) {
+        List<ListenerHolder<OnRequestPermissionResultListener>> listeners;
         synchronized (RECEIVED_LISTENERS) {
-            for (ListenerHolder<OnRequestPermissionResultListener> holder : PERMISSION_LISTENERS) {
-                if (holder.handler != null) {
-                    holder.handler.post(() -> holder.listener.onRequestPermissionResult(requestCode, result));
+            listeners = new ArrayList<>(PERMISSION_LISTENERS);
+        }
+        for (ListenerHolder<OnRequestPermissionResultListener> holder : listeners) {
+            if (holder.handler != null) {
+                holder.handler.post(() -> holder.listener.onRequestPermissionResult(requestCode, result));
+            } else {
+                if (Looper.myLooper() == Looper.getMainLooper()) {
+                    holder.listener.onRequestPermissionResult(requestCode, result);
                 } else {
-                    if (Looper.myLooper() == Looper.getMainLooper()) {
-                        holder.listener.onRequestPermissionResult(requestCode, result);
-                    } else {
-                        MAIN_HANDLER.post(() -> holder.listener.onRequestPermissionResult(requestCode, result));
-                    }
+                    MAIN_HANDLER.post(() -> holder.listener.onRequestPermissionResult(requestCode, result));
                 }
             }
         }
     }
 
-    @NonNull
-    protected static IShizukuService requireService() {
+    @NonNull protected static IShizukuService requireService() {
         if (service == null) {
             throw new IllegalStateException("binder haven't been received");
         }
@@ -437,8 +722,7 @@ public class Shizuku {
      * <p>
      * Normal apps should not use this method.
      */
-    @Nullable
-    public static IBinder getBinder() {
+    @Nullable public static IBinder getBinder() {
         return binder;
     }
 
@@ -452,7 +736,8 @@ public class Shizuku {
      * @see #addBinderDeadListener(OnBinderDeadListener)
      */
     public static boolean pingBinder() {
-        return binder != null && binder.pingBinder();
+        IBinder b = binder;
+        return b != null && b.pingBinder();
     }
 
     private static RuntimeException rethrowAsRuntimeException(RemoteException e) {
@@ -488,7 +773,9 @@ public class Shizuku {
      * for complicated requirements.
      * <p>This method is planned to be removed from Shizuku API 14.
      */
-    private static ShizukuRemoteProcess newProcess(@NonNull String[] cmd, @Nullable String[] env, @Nullable String dir) {
+    @Deprecated
+    private static ShizukuRemoteProcess newProcess(
+            @NonNull String[] cmd, @Nullable String[] env, @Nullable String dir) {
         try {
             return new ShizukuRemoteProcess(requireService().newProcess(cmd, env, dir));
         } catch (RemoteException e) {
@@ -670,7 +957,8 @@ public class Shizuku {
             options.putInt(ShizukuApiConstants.USER_SERVICE_ARG_VERSION_CODE, versionCode);
             options.putBoolean(ShizukuApiConstants.USER_SERVICE_ARG_DAEMON, daemon);
             options.putBoolean(ShizukuApiConstants.USER_SERVICE_ARG_USE_32_BIT_APP_PROCESS, use32BitAppProcess);
-            options.putString(ShizukuApiConstants.USER_SERVICE_ARG_PROCESS_NAME,
+            options.putString(
+                    ShizukuApiConstants.USER_SERVICE_ARG_PROCESS_NAME,
                     Objects.requireNonNull(processName, "process name suffix must not be null"));
             if (tag != null) {
                 options.putString(ShizukuApiConstants.USER_SERVICE_ARG_TAG, tag);
@@ -780,7 +1068,8 @@ public class Shizuku {
      * @param remove Remove (kill) the remote user service.
      * @see Shizuku#bindUserService(UserServiceArgs, ServiceConnection)
      */
-    public static void unbindUserService(@NonNull UserServiceArgs args, @Nullable ServiceConnection conn, boolean remove) {
+    public static void unbindUserService(
+            @NonNull UserServiceArgs args, @Nullable ServiceConnection conn, boolean remove) {
         if (remove) {
             try {
                 requireService().removeUserService(null /* (unused) */, args.forRemove(true));
@@ -909,7 +1198,8 @@ public class Shizuku {
     }
 
     @RestrictTo(LIBRARY_GROUP_PREFIX)
-    public static void dispatchPermissionConfirmationResult(int requestUid, int requestPid, int requestCode, @NonNull Bundle data) {
+    public static void dispatchPermissionConfirmationResult(
+            int requestUid, int requestPid, int requestCode, @NonNull Bundle data) {
         try {
             requireService().dispatchPermissionConfirmationResult(requestUid, requestPid, requestCode, data);
         } catch (RemoteException e) {

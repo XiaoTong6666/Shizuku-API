@@ -13,10 +13,9 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.IBinder;
 import android.util.Log;
-
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
-
+import androidx.core.content.ContextCompat;
 import moe.shizuku.api.BinderContainer;
 import rikka.sui.Sui;
 
@@ -94,7 +93,10 @@ public class ShizukuProvider extends ContentProvider {
      * This method MUST be called as early as possible (e.g., static block in Application).
      */
     public static void enableMultiProcessSupport(boolean isProviderProcess) {
-        Log.d(TAG, "Enable built-in multi-process support (from " + (isProviderProcess ? "provider process" : "non-provider process") + ")");
+        Log.d(
+                TAG,
+                "Enable built-in multi-process support (from "
+                        + (isProviderProcess ? "provider process" : "non-provider process") + ")");
 
         ShizukuProvider.isProviderProcess = isProviderProcess;
         ShizukuProvider.enableMultiProcess = true;
@@ -122,7 +124,7 @@ public class ShizukuProvider extends ContentProvider {
         BroadcastReceiver receiver = new BroadcastReceiver() {
             @Override
             public void onReceive(Context context, Intent intent) {
-                BinderContainer container = intent.getParcelableExtra(EXTRA_BINDER);
+                BinderContainer container = getBinderContainerExtra(intent);
                 if (container != null && container.binder != null) {
                     Log.i(TAG, "binder received from broadcast");
                     Shizuku.onBinderReceived(container.binder, context.getPackageName());
@@ -130,16 +132,17 @@ public class ShizukuProvider extends ContentProvider {
             }
         };
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            context.registerReceiver(receiver, new IntentFilter(ACTION_BINDER_RECEIVED), Context.RECEIVER_NOT_EXPORTED);
-        } else {
-            context.registerReceiver(receiver, new IntentFilter(ACTION_BINDER_RECEIVED));
-        }
+        ContextCompat.registerReceiver(
+                context, receiver, new IntentFilter(ACTION_BINDER_RECEIVED), ContextCompat.RECEIVER_NOT_EXPORTED);
 
         Bundle reply;
         try {
-            reply = context.getContentResolver().call(Uri.parse("content://" + context.getPackageName() + ".shizuku"),
-                    ShizukuProvider.METHOD_GET_BINDER, null, new Bundle());
+            reply = context.getContentResolver()
+                    .call(
+                            Uri.parse("content://" + context.getPackageName() + ".shizuku"),
+                            ShizukuProvider.METHOD_GET_BINDER,
+                            null,
+                            new Bundle());
         } catch (Throwable tr) {
             reply = null;
         }
@@ -147,7 +150,7 @@ public class ShizukuProvider extends ContentProvider {
         if (reply != null) {
             reply.setClassLoader(BinderContainer.class.getClassLoader());
 
-            BinderContainer container = reply.getParcelable(EXTRA_BINDER);
+            BinderContainer container = getBinderContainer(reply);
             if (container != null && container.binder != null) {
                 Log.i(TAG, "Binder received from other process");
                 Shizuku.onBinderReceived(container.binder, context.getPackageName());
@@ -159,11 +162,9 @@ public class ShizukuProvider extends ContentProvider {
     public void attachInfo(Context context, ProviderInfo info) {
         super.attachInfo(context, info);
 
-        if (info.multiprocess)
-            throw new IllegalStateException("android:multiprocess must be false");
+        if (info.multiprocess) throw new IllegalStateException("android:multiprocess must be false");
 
-        if (!info.exported)
-            throw new IllegalStateException("android:exported must be true");
+        if (!info.exported) throw new IllegalStateException("android:exported must be true");
 
         isProviderProcess = true;
     }
@@ -177,8 +178,7 @@ public class ShizukuProvider extends ContentProvider {
         return true;
     }
 
-    @Nullable
-    @Override
+    @Nullable @Override
     public Bundle call(@NonNull String method, @Nullable String arg, @Nullable Bundle extras) {
         if (Sui.isSui()) {
             Log.w(TAG, "Provider called when Sui is available. Are you using Shizuku and Sui at the same time?");
@@ -213,7 +213,7 @@ public class ShizukuProvider extends ContentProvider {
             return;
         }
 
-        BinderContainer container = extras.getParcelable(EXTRA_BINDER);
+        BinderContainer container = getBinderContainer(extras);
         if (container != null && container.binder != null) {
             Log.d(TAG, "binder received");
 
@@ -233,28 +233,45 @@ public class ShizukuProvider extends ContentProvider {
     private boolean handleGetBinder(@NonNull Bundle reply) {
         // Other processes in the same app can read the provider without permission
         IBinder binder = Shizuku.getBinder();
-        if (binder == null || !binder.pingBinder())
-            return false;
+        if (binder == null || !binder.pingBinder()) return false;
 
         reply.putParcelable(EXTRA_BINDER, new BinderContainer(binder));
         return true;
     }
 
+    @SuppressWarnings("deprecation")
+    private static BinderContainer getBinderContainer(@NonNull Bundle bundle) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            return bundle.getParcelable(EXTRA_BINDER, BinderContainer.class);
+        }
+        return bundle.getParcelable(EXTRA_BINDER);
+    }
+
+    @SuppressWarnings("deprecation")
+    private static BinderContainer getBinderContainerExtra(@NonNull Intent intent) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            return intent.getParcelableExtra(EXTRA_BINDER, BinderContainer.class);
+        }
+        return intent.getParcelableExtra(EXTRA_BINDER);
+    }
+
     // no other provider methods
-    @Nullable
-    @Override
-    public final Cursor query(@NonNull Uri uri, @Nullable String[] projection, @Nullable String selection, @Nullable String[] selectionArgs, @Nullable String sortOrder) {
+    @Nullable @Override
+    public final Cursor query(
+            @NonNull Uri uri,
+            @Nullable String[] projection,
+            @Nullable String selection,
+            @Nullable String[] selectionArgs,
+            @Nullable String sortOrder) {
         return null;
     }
 
-    @Nullable
-    @Override
+    @Nullable @Override
     public final String getType(@NonNull Uri uri) {
         return null;
     }
 
-    @Nullable
-    @Override
+    @Nullable @Override
     public final Uri insert(@NonNull Uri uri, @Nullable ContentValues values) {
         return null;
     }
@@ -265,7 +282,11 @@ public class ShizukuProvider extends ContentProvider {
     }
 
     @Override
-    public final int update(@NonNull Uri uri, @Nullable ContentValues values, @Nullable String selection, @Nullable String[] selectionArgs) {
+    public final int update(
+            @NonNull Uri uri,
+            @Nullable ContentValues values,
+            @Nullable String selection,
+            @Nullable String[] selectionArgs) {
         return 0;
     }
 }

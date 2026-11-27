@@ -8,4 +8,7 @@ interface IShizukuApplication {
 
     // Sui only
     void showPermissionConfirmation(int requestUid, int requestPid, in String requestPackageName, int requestCode) = 10000;
+
+    // Sui only. Prepares and commits a replacement Sui server binder in the client process.
+    boolean dispatchServerBinder(in IBinder binder, in String packageName, long generation) = 10001;
 }

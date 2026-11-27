@@ -7,13 +7,11 @@ import android.os.Parcelable;
 import android.os.RemoteException;
 import android.util.ArraySet;
 import android.util.Log;
-
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.util.Collections;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
-
 import moe.shizuku.server.IRemoteProcess;
 
 public class ShizukuRemoteProcess extends Process implements Parcelable {
@@ -29,12 +27,16 @@ public class ShizukuRemoteProcess extends Process implements Parcelable {
     ShizukuRemoteProcess(IRemoteProcess remote) {
         this.remote = remote;
         try {
-            this.remote.asBinder().linkToDeath((IBinder.DeathRecipient) () -> {
-                this.remote = null;
-                Log.v(TAG, "remote process is dead");
+            this.remote
+                    .asBinder()
+                    .linkToDeath(
+                            (IBinder.DeathRecipient) () -> {
+                                this.remote = null;
+                                Log.v(TAG, "remote process is dead");
 
-                CACHE.remove(ShizukuRemoteProcess.this);
-            }, 0);
+                                CACHE.remove(ShizukuRemoteProcess.this);
+                            },
+                            0);
         } catch (RemoteException e) {
             Log.e(TAG, "linkToDeath", e);
         }
