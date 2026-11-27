@@ -37,9 +37,7 @@ public class RishHost {
 
         byte[] bytes = s.getBytes();
         byte[] result = new byte[bytes.length + 1];
-        System.arraycopy(bytes, 0,
-                result, 0,
-                bytes.length);
+        System.arraycopy(bytes, 0, result, 0, bytes.length);
         result[result.length - 1] = (byte) 0;
         return result;
     }
@@ -60,12 +58,19 @@ public class RishHost {
     private final int stderr;
     private int pid;
     private int ptmx;
-    private int exitCode = Integer.MAX_VALUE;
+    private volatile int exitCode = Integer.MAX_VALUE;
+    private Runnable exitCleanup;
+    private boolean exited;
+    private boolean exitCleanupRun;
 
     public RishHost(
-            String[] args, String[] env, String dir,
+            String[] args,
+            String[] env,
+            String dir,
             byte tty,
-            ParcelFileDescriptor stdin, ParcelFileDescriptor stdout, ParcelFileDescriptor stderr) {
+            ParcelFileDescriptor stdin,
+            ParcelFileDescriptor stdout,
+            ParcelFileDescriptor stderr) {
 
         this.args = args;
         this.env = env;
@@ -82,21 +87,35 @@ public class RishHost {
     public void start() {
         Log.d(TAG, "start");
 
-
         byte[] argBlock = createCBytesForStringArray(args);
         byte[] envBlock = createCBytesForStringArray(env);
         byte[] dirBlock = createCBytesForString(dir);
 
         int[] result = start(
-                argBlock, args.length,
-                envBlock, env != null ? env.length : -1,
-                dirBlock,
-                tty, stdin, stdout, stderr);
+                argBlock, args.length, envBlock, env != null ? env.length : -1, dirBlock, tty, stdin, stdout, stderr);
 
         pid = result[0];
         ptmx = result[1];
 
-        new Thread(() -> exitCode = waitFor(pid)).start();
+        new Thread(() -> {
+                    exitCode = waitFor(pid);
+                    // The shell leader may exit while background descendants still own the
+                    // process group. Revoke them before publishing the completed result.
+                    kill(pid);
+
+                    Runnable cleanup;
+                    synchronized (this) {
+                        exited = true;
+                        cleanup = exitCleanup;
+                        if (cleanup != null) {
+                            exitCleanupRun = true;
+                        }
+                    }
+                    if (cleanup != null) {
+                        cleanup.run();
+                    }
+                })
+                .start();
     }
 
     public int getPid() {
@@ -107,19 +126,46 @@ public class RishHost {
         return exitCode;
     }
 
+    void setExitCleanup(Runnable cleanup) {
+        boolean runNow;
+        synchronized (this) {
+            exitCleanup = cleanup;
+            runNow = exited && !exitCleanupRun;
+            if (runNow) {
+                exitCleanupRun = true;
+            }
+        }
+        if (runNow) {
+            cleanup.run();
+        }
+    }
+
     public void setWindowSize(long size) {
         Log.d(TAG, "setWindowSize");
 
         setWindowSize(ptmx, size);
     }
 
+    public void destroy() {
+        if (pid > 0) {
+            kill(pid);
+        }
+    }
+
     private static native int[] start(
-            byte[] argBlock, int argc,
-            byte[] envBlock, int envc,
+            byte[] argBlock,
+            int argc,
+            byte[] envBlock,
+            int envc,
             byte[] dirBlock,
-            byte tty, int stdin, int stdout, int stderr);
+            byte tty,
+            int stdin,
+            int stdout,
+            int stderr);
 
     private static native void setWindowSize(int ptmx, long size);
 
     private static native int waitFor(int pid);
+
+    private static native void kill(int pid);
 }
