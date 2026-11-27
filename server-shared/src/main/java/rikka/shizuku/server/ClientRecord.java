@@ -3,7 +3,6 @@ package rikka.shizuku.server;
 import static rikka.shizuku.ShizukuApiConstants.REQUEST_PERMISSION_REPLY_ALLOWED;
 
 import android.os.Bundle;
-
 import moe.shizuku.server.IShizukuApplication;
 import rikka.shizuku.server.util.Logger;
 
@@ -16,7 +15,9 @@ public class ClientRecord {
     public final IShizukuApplication client;
     public final String packageName;
     public final int apiVersion;
-    public boolean allowed;
+    public volatile boolean allowed;
+    public volatile boolean onetime;
+    public volatile boolean supportsServerBinderHandoff;
 
     public ClientRecord(int uid, int pid, IShizukuApplication client, String packageName, int apiVersion) {
         this.uid = uid;
@@ -24,6 +25,8 @@ public class ClientRecord {
         this.client = client;
         this.packageName = packageName;
         this.allowed = false;
+        this.onetime = false;
+        this.supportsServerBinderHandoff = false;
         this.apiVersion = apiVersion;
     }
 
@@ -33,7 +36,12 @@ public class ClientRecord {
         try {
             client.dispatchRequestPermissionResult(requestCode, reply);
         } catch (Throwable e) {
-            LOGGER.w(e, "dispatchRequestPermissionResult failed for client (uid=%d, pid=%d, package=%s)", uid, pid, packageName);
+            LOGGER.w(
+                    e,
+                    "dispatchRequestPermissionResult failed for client (uid=%d, pid=%d, package=%s)",
+                    uid,
+                    pid,
+                    packageName);
         }
     }
 }

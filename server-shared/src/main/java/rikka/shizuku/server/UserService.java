@@ -9,10 +9,9 @@ import android.os.UserHandle;
 import android.os.UserHandleHidden;
 import android.util.Log;
 import android.util.Pair;
-
 import androidx.annotation.Nullable;
-
 import dev.rikka.tools.refine.Refine;
+import java.lang.reflect.Constructor;
 
 public class UserService {
 
@@ -22,8 +21,7 @@ public class UserService {
         UserService.TAG = tag;
     }
 
-    @Nullable
-    public static Pair<IBinder, String> create(String[] args) {
+    @Nullable public static Pair<IBinder, String> create(String[] args) {
         String name = null;
         String token = null;
         String pkg = null;
@@ -44,31 +42,48 @@ public class UserService {
             }
         }
 
+        int userId = uid / 100000;
+
         Log.i(TAG, String.format("starting service %s/%s...", pkg, cls));
 
+        IBinder service;
+
         try {
-            Context systemContext = ActivityThread.systemMain().getSystemContext();
+            ActivityThread activityThread = ActivityThread.systemMain();
+            Context systemContext = activityThread.getSystemContext();
 
             DdmHandleAppName.setAppName(name != null ? name : pkg + ":user_service", 0);
 
-            UserHandle userHandle = Refine.unsafeCast(UserHandleHidden.of(uid / 100000));
-            var flags = Context.CONTEXT_INCLUDE_CODE | Context.CONTEXT_IGNORE_SECURITY;
+            //noinspection InstantiationOfUtilityClass
+            UserHandle userHandle;
+            if (android.os.Build.VERSION.SDK_INT >= 24) {
+                userHandle = Refine.unsafeCast(UserHandleHidden.of(userId));
+            } else {
+                Constructor<UserHandle> constructor = UserHandle.class.getDeclaredConstructor(int.class);
+                constructor.setAccessible(true);
+                userHandle = constructor.newInstance(userId);
+            }
             Context context = Refine.<ContextHidden>unsafeCast(systemContext)
-                    .createPackageContextAsUser(pkg, flags, userHandle);
+                    .createPackageContextAsUser(
+                            pkg, Context.CONTEXT_INCLUDE_CODE | Context.CONTEXT_IGNORE_SECURITY, userHandle);
+
             ClassLoader classLoader = context.getClassLoader();
             Class<?> serviceClass = classLoader.loadClass(cls);
+            Constructor<?> constructorWithContext = null;
             try {
-                var constructorWithContext = serviceClass.getConstructor(Context.class);
-                var service = (IBinder) constructorWithContext.newInstance(context);
-                return new Pair<>(service, token);
-            } catch (ReflectiveOperationException ignored) {
+                constructorWithContext = serviceClass.getConstructor(Context.class);
+            } catch (NoSuchMethodException | SecurityException ignored) {
             }
-            var constructor = serviceClass.getConstructor();
-            var service = (IBinder) constructor.newInstance();
-            return new Pair<>(service, token);
+            if (constructorWithContext != null) {
+                service = (IBinder) constructorWithContext.newInstance(context);
+            } else {
+                service = (IBinder) serviceClass.getConstructor().newInstance();
+            }
         } catch (Throwable tr) {
-            Log.e(TAG, String.format("unable to start service %s/%s...", pkg, cls), tr);
+            Log.w(TAG, String.format("unable to start service %s/%s...", pkg, cls), tr);
             return null;
         }
+
+        return new Pair<>(service, token);
     }
 }

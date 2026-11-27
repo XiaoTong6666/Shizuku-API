@@ -1,8 +1,6 @@
 package rikka.shizuku.server.util;
 
 import android.os.Handler;
-import android.os.Looper;
-
 import java.util.Objects;
 
 public class HandlerUtil {

@@ -8,15 +8,17 @@ import android.os.RemoteException;
 import android.os.SELinux;
 import android.os.SystemProperties;
 import android.system.Os;
-
 import androidx.annotation.CallSuper;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
-
 import java.io.File;
 import java.io.IOException;
 import java.util.Arrays;
-
+import java.util.Collections;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import moe.shizuku.server.IRemoteProcess;
 import moe.shizuku.server.IShizukuApplication;
 import moe.shizuku.server.IShizukuService;
@@ -31,14 +33,16 @@ import rikka.shizuku.server.util.OsUtils;
 import rikka.shizuku.server.util.UserHandleCompat;
 
 public abstract class Service<
-        UserServiceMgr extends UserServiceManager,
-        ClientMgr extends ClientManager<ConfigMgr>,
-        ConfigMgr extends ConfigManager> extends IShizukuService.Stub {
+                UserServiceMgr extends UserServiceManager,
+                ClientMgr extends ClientManager<ConfigMgr>,
+                ConfigMgr extends ConfigManager>
+        extends IShizukuService.Stub {
 
     private final UserServiceMgr userServiceManager;
     private final ConfigMgr configManager;
     private final ClientMgr clientManager;
     private final RishService rishService;
+    private final ConcurrentHashMap<Integer, Set<RemoteProcessHolder>> remoteProcessHolders = new ConcurrentHashMap<>();
 
     protected static final Logger LOGGER = new Logger("Service");
 
@@ -53,6 +57,27 @@ public abstract class Service<
             @Override
             public void enforceCallingPermission(String func) {
                 Service.this.enforceCallingPermission(func);
+            }
+
+            @Override
+            protected long beginCapabilityCreation(String kind, int uid, int pid) {
+                return Service.this.beginCapabilityCreation(kind, uid, pid);
+            }
+
+            @Override
+            protected boolean finishCapabilityCreation(String kind, int uid, int pid, long epoch, Runnable publisher) {
+                return Service.this.finishCapabilityCreation(kind, uid, pid, epoch, publisher);
+            }
+
+            @Override
+            protected void abortCapabilityCreation(String kind, int uid, int pid, long epoch) {
+                Service.this.abortCapabilityCreation(kind, uid, pid, epoch);
+            }
+
+            @Override
+            protected IBinder getClientBinder(int uid, int pid) {
+                ClientRecord clientRecord = clientManager.findClient(uid, pid);
+                return clientRecord != null ? clientRecord.client.asBinder() : null;
             }
         };
     }
@@ -75,6 +100,14 @@ public abstract class Service<
         return configManager;
     }
 
+    protected final boolean hasRishHostForClient(int pid) {
+        return rishService.hasHostForClient(pid);
+    }
+
+    protected final void revokeRishHostForClient(int pid) {
+        rishService.revokeHostForClient(pid);
+    }
+
     public boolean checkCallerManagerPermission(String func, int callingUid, int callingPid) {
         return false;
     }
@@ -91,15 +124,79 @@ public abstract class Service<
             return;
         }
 
-        String msg = "Permission Denial: " + func + " from pid="
-                + Binder.getCallingPid()
-                + " is not manager ";
+        String msg = "Permission Denial: " + func + " from pid=" + Binder.getCallingPid() + " is not manager ";
         LOGGER.w(msg);
         throw new SecurityException(msg);
     }
 
-    public boolean checkCallerPermission(String func, int callingUid, int callingPid, @Nullable ClientRecord clientRecord) {
+    public boolean checkCallerPermission(
+            String func, int callingUid, int callingPid, @Nullable ClientRecord clientRecord) {
         return false;
+    }
+
+    protected boolean isClientAuthorized(ClientRecord clientRecord) {
+        return clientRecord.allowed;
+    }
+
+    protected long beginCapabilityCreation(String kind, int uid, int pid) {
+        return 0;
+    }
+
+    protected boolean finishCapabilityCreation(String kind, int uid, int pid, long epoch, Runnable publisher) {
+        publisher.run();
+        return true;
+    }
+
+    protected void abortCapabilityCreation(String kind, int uid, int pid, long epoch) {}
+
+    protected final boolean hasRemoteProcessesForUid(int uid) {
+        synchronized (remoteProcessHolders) {
+            Set<RemoteProcessHolder> holders = remoteProcessHolders.get(uid);
+            return holders != null && !holders.isEmpty();
+        }
+    }
+
+    protected final void revokeRemoteProcessesForUid(int uid) {
+        Set<RemoteProcessHolder> holders;
+        synchronized (remoteProcessHolders) {
+            holders = remoteProcessHolders.remove(uid);
+        }
+        if (holders == null) {
+            return;
+        }
+        for (RemoteProcessHolder holder : holders) {
+            try {
+                holder.destroy();
+            } catch (Throwable e) {
+                LOGGER.w(e, "failed to revoke remote process for uid %d", uid);
+            }
+        }
+    }
+
+    private void addRemoteProcessHolder(int uid, RemoteProcessHolder holder, AtomicBoolean destroyed) {
+        synchronized (remoteProcessHolders) {
+            if (destroyed.get()) {
+                return;
+            }
+            Set<RemoteProcessHolder> holders = remoteProcessHolders.get(uid);
+            if (holders == null) {
+                holders = Collections.newSetFromMap(new ConcurrentHashMap<RemoteProcessHolder, Boolean>());
+                remoteProcessHolders.put(uid, holders);
+            }
+            holders.add(holder);
+        }
+    }
+
+    private void removeRemoteProcessHolder(int uid, RemoteProcessHolder holder) {
+        synchronized (remoteProcessHolders) {
+            Set<RemoteProcessHolder> holders = remoteProcessHolders.get(uid);
+            if (holders != null) {
+                holders.remove(holder);
+                if (holders.isEmpty()) {
+                    remoteProcessHolders.remove(uid);
+                }
+            }
+        }
     }
 
     public final void enforceCallingPermission(String func) {
@@ -117,17 +214,14 @@ public abstract class Service<
         }
 
         if (clientRecord == null) {
-            String msg = "Permission Denial: " + func + " from pid="
-                    + Binder.getCallingPid()
-                    + " is not an attached client";
+            String msg =
+                    "Permission Denial: " + func + " from pid=" + Binder.getCallingPid() + " is not an attached client";
             LOGGER.w(msg);
             throw new SecurityException(msg);
         }
 
-        if (!clientRecord.allowed) {
-            String msg = "Permission Denial: " + func + " from pid="
-                    + Binder.getCallingPid()
-                    + " requires permission";
+        if (!isClientAuthorized(clientRecord)) {
+            String msg = "Permission Denial: " + func + " from pid=" + Binder.getCallingPid() + " requires permission";
             LOGGER.w(msg);
             throw new SecurityException(msg);
         }
@@ -150,18 +244,29 @@ public abstract class Service<
             targetFlags = flags;
         }
 
-        LOGGER.d("transact: uid=%d, descriptor=%s, code=%d", Binder.getCallingUid(), targetBinder.getInterfaceDescriptor(), targetCode);
+        LOGGER.d(
+                "transact: uid=%d, descriptor=%s, code=%d",
+                Binder.getCallingUid(), targetBinder.getInterfaceDescriptor(), targetCode);
+
+        // Strip the Shizuku target binder/code/flags header for every target,
+        // including local Java Binder. Binder.transact resets dataPosition to 0,
+        // so passing the original Parcel would make onTransact read that header.
         Parcel newData = Parcel.obtain();
         try {
-            newData.appendFrom(data, data.dataPosition(), data.dataAvail());
-        } catch (Throwable tr) {
-            LOGGER.w(tr, "appendFrom");
-            return;
-        }
-        try {
+            try {
+                newData.appendFrom(data, data.dataPosition(), data.dataAvail());
+            } catch (Throwable tr) {
+                LOGGER.w(tr, "appendFrom");
+                return;
+            }
             long id = Binder.clearCallingIdentity();
-            targetBinder.transact(targetCode, newData, reply, targetFlags);
-            Binder.restoreCallingIdentity(id);
+            try {
+                targetBinder.transact(targetCode, newData, reply, targetFlags);
+            } finally {
+                // A target onTransact may throw; never leak its cleared identity
+                // into subsequent Binder calls handled by this thread.
+                Binder.restoreCallingIdentity(id);
+            }
         } finally {
             newData.recycle();
         }
@@ -232,14 +337,17 @@ public abstract class Service<
         int callingUid = Binder.getCallingUid();
         int callingPid = Binder.getCallingPid();
         int callingApiVersion;
+        boolean onetime;
 
         ClientRecord clientRecord = clientManager.findClient(callingUid, callingPid);
         if (clientRecord == null) {
             callingApiVersion = ShizukuApiConstants.SERVER_VERSION;
+            onetime = false;
         } else {
             callingApiVersion = clientRecord.apiVersion;
+            onetime = clientRecord.onetime;
         }
-        return userServiceManager.addUserService(conn, options, callingApiVersion);
+        return userServiceManager.addUserService(conn, options, callingApiVersion, onetime);
     }
 
     @Override
@@ -256,7 +364,7 @@ public abstract class Service<
             return true;
         }
 
-        return clientManager.requireClient(callingUid, callingPid).allowed;
+        return isClientAuthorized(clientManager.requireClient(callingUid, callingPid));
     }
 
     @Override
@@ -271,7 +379,7 @@ public abstract class Service<
 
         ClientRecord clientRecord = clientManager.requireClient(callingUid, callingPid);
 
-        if (clientRecord.allowed) {
+        if (isClientAuthorized(clientRecord)) {
             clientRecord.dispatchRequestPermissionResult(requestCode, true);
             return;
         }
@@ -307,19 +415,70 @@ public abstract class Service<
     public final IRemoteProcess newProcess(String[] cmd, String[] env, String dir) {
         enforceCallingPermission("newProcess");
 
-        LOGGER.d("newProcess: uid=%d, cmd=%s, env=%s, dir=%s", Binder.getCallingUid(), Arrays.toString(cmd), Arrays.toString(env), dir);
+        int callingUid = Binder.getCallingUid();
+        int callingPid = Binder.getCallingPid();
+        long capabilityEpoch = beginCapabilityCreation("remote-process", callingUid, callingPid);
+        boolean epochFinished = false;
+        boolean capabilityPublished = false;
+        RemoteProcessHolder holder = null;
 
-        java.lang.Process process;
         try {
-            process = Runtime.getRuntime().exec(cmd, env, dir != null ? new File(dir) : null);
+            LOGGER.d(
+                    "newProcess: uid=%d, cmd=%s, env=%s, dir=%s",
+                    callingUid, Arrays.toString(cmd), Arrays.toString(env), dir);
+
+            ClientRecord clientRecord = clientManager.findClient(callingUid, callingPid);
+            IBinder token = clientRecord != null ? clientRecord.client.asBinder() : null;
+            String[] actualCmd = cmd;
+            boolean processGroup = false;
+            File setsid = new File("/system/bin/setsid");
+            if (setsid.canExecute()) {
+                actualCmd = new String[cmd.length + 1];
+                actualCmd[0] = setsid.getAbsolutePath();
+                System.arraycopy(cmd, 0, actualCmd, 1, cmd.length);
+                processGroup = true;
+            }
+            java.lang.Process process = Runtime.getRuntime().exec(actualCmd, env, dir != null ? new File(dir) : null);
+
+            AtomicBoolean holderDestroyed = new AtomicBoolean();
+            AtomicReference<RemoteProcessHolder> holderRef = new AtomicReference<>();
+            holder = new RemoteProcessHolder(process, token, processGroup, () -> {
+                holderDestroyed.set(true);
+                RemoteProcessHolder current = holderRef.get();
+                if (current != null) {
+                    removeRemoteProcessHolder(callingUid, current);
+                }
+            });
+            holderRef.set(holder);
+            RemoteProcessHolder candidate = holder;
+            boolean committed;
+            try {
+                committed = finishCapabilityCreation(
+                        "remote-process",
+                        callingUid,
+                        callingPid,
+                        capabilityEpoch,
+                        () -> addRemoteProcessHolder(callingUid, candidate, holderDestroyed));
+            } finally {
+                // finishCapabilityCreation owns and consumes the epoch lease once invoked,
+                // including its rejection and exceptional paths.
+                epochFinished = true;
+            }
+            if (!committed) {
+                throw new SecurityException("permission changed while creating remote process");
+            }
+            capabilityPublished = true;
+            return holder;
         } catch (IOException e) {
-            throw new IllegalStateException(e.getMessage());
+            throw new IllegalStateException(e.getMessage(), e);
+        } finally {
+            if (!epochFinished) {
+                abortCapabilityCreation("remote-process", callingUid, callingPid, capabilityEpoch);
+            }
+            if (!capabilityPublished && holder != null) {
+                holder.destroy();
+            }
         }
-
-        ClientRecord clientRecord = clientManager.findClient(Binder.getCallingUid(), Binder.getCallingPid());
-        IBinder token = clientRecord != null ? clientRecord.client.asBinder() : null;
-
-        return new RemoteProcessHolder(process, token);
     }
 
     @CallSuper

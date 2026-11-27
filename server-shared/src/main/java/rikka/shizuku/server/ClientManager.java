@@ -2,11 +2,8 @@ package rikka.shizuku.server;
 
 import android.os.IBinder;
 import android.os.RemoteException;
-
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
-
 import moe.shizuku.server.IShizukuApplication;
 import rikka.shizuku.server.util.Logger;
 
@@ -15,7 +12,7 @@ public class ClientManager<ConfigMgr extends ConfigManager> {
     protected static final Logger LOGGER = new Logger("UserServiceRecord");
 
     private final ConfigMgr configManager;
-    private final List<ClientRecord> clientRecords = Collections.synchronizedList(new ArrayList<>());
+    private final List<ClientRecord> clientRecords = new ArrayList<>();
 
     public ClientManager(ConfigMgr configManager) {
         this.configManager = configManager;
@@ -25,8 +22,18 @@ public class ClientManager<ConfigMgr extends ConfigManager> {
         return configManager;
     }
 
+    protected boolean isClientAllowed(ConfigPackageEntry entry) {
+        return entry != null && (entry.isAllowed() || entry.isAllowedShell());
+    }
+
+    public List<ClientRecord> getClients() {
+        synchronized (clientRecords) {
+            return new ArrayList<>(clientRecords);
+        }
+    }
+
     public List<ClientRecord> findClients(int uid) {
-        synchronized (this) {
+        synchronized (clientRecords) {
             List<ClientRecord> res = new ArrayList<>();
             for (ClientRecord clientRecord : clientRecords) {
                 if (clientRecord.uid == uid) {
@@ -38,9 +45,11 @@ public class ClientManager<ConfigMgr extends ConfigManager> {
     }
 
     public ClientRecord findClient(int uid, int pid) {
-        for (ClientRecord clientRecord : clientRecords) {
-            if (clientRecord.pid == pid && clientRecord.uid == uid) {
-                return clientRecord;
+        synchronized (clientRecords) {
+            for (ClientRecord clientRecord : clientRecords) {
+                if (clientRecord.pid == pid && clientRecord.uid == uid) {
+                    return clientRecord;
+                }
             }
         }
         return null;
@@ -66,12 +75,16 @@ public class ClientManager<ConfigMgr extends ConfigManager> {
         ClientRecord clientRecord = new ClientRecord(uid, pid, client, packageName, apiVersion);
 
         ConfigPackageEntry entry = configManager.find(uid);
-        if (entry != null && entry.isAllowed()) {
+        if (isClientAllowed(entry)) {
             clientRecord.allowed = true;
         }
 
         IBinder binder = client.asBinder();
-        IBinder.DeathRecipient deathRecipient = () -> clientRecords.remove(clientRecord);
+        IBinder.DeathRecipient deathRecipient = () -> {
+            synchronized (clientRecords) {
+                clientRecords.remove(clientRecord);
+            }
+        };
         try {
             binder.linkToDeath(deathRecipient, 0);
         } catch (RemoteException e) {
@@ -79,9 +92,9 @@ public class ClientManager<ConfigMgr extends ConfigManager> {
             return null;
         }
 
-        clientRecords.add(clientRecord);
+        synchronized (clientRecords) {
+            clientRecords.add(clientRecord);
+        }
         return clientRecord;
     }
 }
-
-
